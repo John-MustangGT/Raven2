@@ -30,3 +30,4 @@ bin/
 srv/
 data/
 config.yaml
+build/
