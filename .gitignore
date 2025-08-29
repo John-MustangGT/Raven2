@@ -25,8 +25,7 @@ __pycache__/
 version.go
 .last_commit
 *.so
-src/huginn/huginn
-src/nmapparse/nmapparse
 tmp/
 bin/
 srv/
+config.yaml

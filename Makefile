@@ -1,3 +1,12 @@
+# Go parameters
+GOCMD=go
+GOBUILD=$(GOCMD) build
+GOCLEAN=$(GOCMD) clean
+GOTEST=$(GOCMD) test
+GOGET=$(GOCMD) get
+GOMOD=$(GOCMD) mod
+GOFMT=$(GOCMD) fmt
+
 # Makefile for building and deployment
 .PHONY: build run test clean docker deploy
 
@@ -9,8 +18,16 @@ LDFLAGS := -X main.Version=$(VERSION) \
            -X main.BuildTime=$(BUILD_TIME) \
            -X main.Commit=$(COMMIT)
 
+all: build discover
+
+# Build main program
 build:
-	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS)" -o bin/raven ./cmd/raven
+	CGO_ENABLED=1 $(GOCMD) build -ldflags "$(LDFLAGS)" -o bin/raven ./cmd/raven
+
+# Build the discovery utility
+discover:
+	CGO_ENABLED=1 $(GOCMD) build -ldflags "$(LDFLAGS)" -o bin/raven-discover ./cmd/raven-discover
+
 
 run: build
 	./bin/raven -config config.yaml
@@ -18,7 +35,7 @@ run: build
 test:
 	go test -v ./...
 
-clean:
+clean: clean-discover
 	rm -rf bin/ data/
 
 docker:
@@ -32,8 +49,10 @@ dev:
 	go run -ldflags "$(LDFLAGS)" ./cmd/raven -config config.yaml
 
 install-deps:
-	go mod tidy
-	go mod download
+
+# Clean up discovery binary
+clean-discover:
+	rm -f bin/raven-discover
 
 format:
 	go fmt ./...
