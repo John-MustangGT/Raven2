@@ -14,28 +14,80 @@ PACKAGE_NAME = raven
 BUILD_DIR = build
 DEB_DIR = $(BUILD_DIR)/$(PACKAGE_NAME)_$(RELEASE_VERSION)_$(ARCH)
 
+# Enhanced build information
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "$(RELEASE_VERSION)")
+BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+GO_VERSION := $(shell go version | cut -d' ' -f3)
 
-# Makefile for building and deployment
-.PHONY: build run test clean docker deploy
+# Package for build info injection
+PKG := raven2/internal/web
 
-VERSION := $(shell git describe --tags --always --dirty)
-BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
-COMMIT := $(shell git rev-parse HEAD)
-
+# Enhanced LDFLAGS with build info for web interface
 LDFLAGS := -X main.Version=$(VERSION) \
            -X main.BuildTime=$(BUILD_TIME) \
-           -X main.Commit=$(COMMIT)
+           -X main.Commit=$(COMMIT) \
+           -X '$(PKG).Version=$(VERSION)' \
+           -X '$(PKG).GitCommit=$(COMMIT)' \
+           -X '$(PKG).GitBranch=$(GIT_BRANCH)' \
+           -X '$(PKG).BuildTime=$(BUILD_TIME)' \
+           -X '$(PKG).BuildFlags=-trimpath'
+
+# Build flags
+GO_BUILD_FLAGS := -ldflags="$(LDFLAGS)" -trimpath
+
+# Makefile for building and deployment
+.PHONY: build run test clean docker deploy info help
 
 all: build discover
 
-# Build main program
+# Build main program with enhanced build info
 build:
-	CGO_ENABLED=1 $(GOCMD) build -ldflags "$(LDFLAGS)" -o bin/raven ./cmd/raven
+	@echo "Building Raven v$(VERSION)..."
+	@echo "  Git Commit: $(COMMIT)"
+	@echo "  Git Branch: $(GIT_BRANCH)" 
+	@echo "  Build Time: $(BUILD_TIME)"
+	@echo "  Go Version: $(GO_VERSION)"
+	@mkdir -p bin
+	CGO_ENABLED=1 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven ./cmd/raven
 
 # Build the discovery utility
 discover:
-	CGO_ENABLED=1 $(GOCMD) build -ldflags "$(LDFLAGS)" -o bin/raven-discover ./cmd/raven-discover
+	@echo "Building Raven Discovery..."
+	@mkdir -p bin
+	CGO_ENABLED=1 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven-discover ./cmd/raven-discover
 
+# Build for development (with race detector)
+dev-build:
+	@echo "Building Raven for development (with race detector)..."
+	@mkdir -p bin
+	CGO_ENABLED=1 $(GOCMD) build $(GO_BUILD_FLAGS) -race -o bin/raven-dev ./cmd/raven
+
+# Build for multiple platforms
+build-all: build-linux build-windows build-darwin
+
+build-linux:
+	@echo "Building for Linux..."
+	@mkdir -p bin
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven-linux-amd64 ./cmd/raven
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven-linux-arm64 ./cmd/raven
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven-discover-linux-amd64 ./cmd/raven-discover
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven-discover-linux-arm64 ./cmd/raven-discover
+
+build-windows:
+	@echo "Building for Windows..."
+	@mkdir -p bin
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven-windows-amd64.exe ./cmd/raven
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven-discover-windows-amd64.exe ./cmd/raven-discover
+
+build-darwin:
+	@echo "Building for macOS..."
+	@mkdir -p bin
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven-darwin-amd64 ./cmd/raven
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven-darwin-arm64 ./cmd/raven
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven-discover-darwin-amd64 ./cmd/raven-discover
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GOCMD) build $(GO_BUILD_FLAGS) -o bin/raven-discover-darwin-arm64 ./cmd/raven-discover
 
 run: build
 	./bin/raven -config config.yaml
@@ -53,14 +105,17 @@ docker:
 deploy: docker
 	docker-compose up -d
 
-dev:
-	go run -ldflags "$(LDFLAGS)" ./cmd/raven -config config.yaml
+dev: dev-build
+	./bin/raven-dev -config config.yaml
 
 install-deps:
+	@echo "Installing dependencies..."
+	go mod tidy
+	go mod download
 
 # Clean up discovery binary
 clean-discover:
-	rm -f bin/raven-discover
+	rm -f bin/raven-discover*
 
 format:
 	go fmt ./...
@@ -84,11 +139,45 @@ setup-dev:
 	go mod download
 	@echo "Development environment ready!"
 
+# Show build information
+info:
+	@echo "🐦 Raven Network Monitoring - Build Information"
+	@echo "=============================================="
+	@echo "Version:       $(VERSION)"
+	@echo "Git Commit:    $(COMMIT)"
+	@echo "Git Branch:    $(GIT_BRANCH)"
+	@echo "Build Time:    $(BUILD_TIME)"
+	@echo "Go Version:    $(GO_VERSION)"
+	@echo "Package:       $(PKG)"
+	@echo ""
+	@echo "LDFLAGS:       $(LDFLAGS)"
+	@echo ""
+	@echo "Build Targets:"
+	@echo "  Local:       make build"
+	@echo "  All Platforms: make build-all"
+	@echo "  Development: make dev-build"
+	@echo "  Debian Package: make deb"
 
-# Build Debian package
+# Create release package
+package: build discover
+	@echo "Creating release package..."
+	@mkdir -p $(BUILD_DIR)/release
+	@cp bin/raven $(BUILD_DIR)/release/
+	@cp bin/raven-discover $(BUILD_DIR)/release/
+	@if [ -d "web" ]; then cp -r web $(BUILD_DIR)/release/; fi
+	@if [ -f "README.md" ]; then cp README.md $(BUILD_DIR)/release/; fi
+	@if [ -f "LICENSE" ]; then cp LICENSE $(BUILD_DIR)/release/; fi
+	@if [ -f "config.example.yaml" ]; then cp config.example.yaml $(BUILD_DIR)/release/config.yaml; fi
+	@cd $(BUILD_DIR) && tar -czf raven-$(VERSION).tar.gz release/
+	@echo "Release package created: $(BUILD_DIR)/raven-$(VERSION).tar.gz"
+
+# Build Debian package (enhanced with build info)
 .PHONY: deb
 deb: build discover
-	@echo "Building Debian package v$(RELEASE_VERSION)..."
+	@echo "Building Debian package v$(RELEASE_VERSION) with build info..."
+	@echo "  Version: $(VERSION)"
+	@echo "  Commit:  $(COMMIT)"
+	@echo "  Branch:  $(GIT_BRANCH)"
 	@rm -rf $(BUILD_DIR)
 	@mkdir -p $(DEB_DIR)/DEBIAN
 	@mkdir -p $(DEB_DIR)/usr/bin
@@ -130,9 +219,16 @@ deb: build discover
 	@cp config/alert-rules.yaml $(DEB_DIR)/usr/share/doc/raven/examples/
 	@cp config/prometheus.yml $(DEB_DIR)/usr/share/doc/raven/examples/
 	
-	# Create installation summary
-	@echo "Raven Network Monitoring System v$(RELEASE_VERSION)" > $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	# Create enhanced installation summary with build info
+	@echo "Raven Network Monitoring System v$(VERSION)" > $(DEB_DIR)/usr/share/doc/raven/INSTALL
 	@echo "=========================================" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "Build Information:" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Version:           $(VERSION)" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Git Commit:        $(COMMIT)" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Git Branch:        $(GIT_BRANCH)" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Build Time:        $(BUILD_TIME)" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Go Version:        $(GO_VERSION)" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
 	@echo "" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
 	@echo "Installation Summary:" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
 	@echo "  Configuration:     /etc/raven/config.yaml" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
@@ -150,10 +246,12 @@ deb: build discover
 	@echo "  Main README:       /usr/share/doc/raven/README.md" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
 	@echo "  Configuration:     /usr/share/doc/raven/Configuration.md" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
 	@echo "  Examples:          /usr/share/doc/raven/examples/" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Build Info:        Available in web interface under About tab" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
 
 	# Build the package
 	@dpkg-deb --build $(DEB_DIR)
 	@echo "Debian package created: $(DEB_DIR).deb"
+	@echo "Build info embedded for web interface About tab"
 
 # Install the built deb package
 .PHONY: install-deb
@@ -173,3 +271,54 @@ setup-debian:
 	@mkdir -p debian/etc/raven
 	@mkdir -p debian/etc/systemd/system
 
+# Help target
+help:
+	@echo "🐦 Raven Network Monitoring - Build System"
+	@echo "=========================================="
+	@echo ""
+	@echo "Build Targets:"
+	@echo "  build          Build main raven binary"
+	@echo "  discover       Build raven-discover utility"
+	@echo "  build-all      Build for all platforms (Linux, Windows, macOS)"
+	@echo "  dev-build      Build development version with race detector"
+	@echo "  package        Create release package (.tar.gz)"
+	@echo ""
+	@echo "Platform-Specific Builds:"
+	@echo "  build-linux    Build for Linux (amd64, arm64)"
+	@echo "  build-windows  Build for Windows (amd64)"
+	@echo "  build-darwin   Build for macOS (amd64, arm64)"
+	@echo ""
+	@echo "Development:"
+	@echo "  dev            Build and run development version"
+	@echo "  run            Build and run with config.yaml"
+	@echo "  test           Run all tests"
+	@echo "  format         Format and vet code"
+	@echo "  lint           Run linter"
+	@echo ""
+	@echo "Packaging:"
+	@echo "  deb            Build Debian package"
+	@echo "  install-deb    Build and install Debian package"
+	@echo "  docker         Build Docker image"
+	@echo "  deploy         Deploy with Docker Compose"
+	@echo ""
+	@echo "Database:"
+	@echo "  migrate        Run database migrations"
+	@echo "  backup         Create database backup"
+	@echo ""
+	@echo "Maintenance:"
+	@echo "  clean          Remove build artifacts"
+	@echo "  install-deps   Install Go dependencies"
+	@echo "  setup-dev      Setup development environment"
+	@echo ""
+	@echo "Information:"
+	@echo "  info           Show build information"
+	@echo "  help           Show this help message"
+	@echo ""
+	@echo "Environment Variables:"
+	@echo "  RELEASE_VERSION  Override release version (default: 2.0.0)"
+	@echo "  ARCH            Target architecture (default: amd64)"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make build"
+	@echo "  make RELEASE_VERSION=2.1.0 deb"
+	@echo "  make build-all"

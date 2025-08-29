@@ -81,6 +81,98 @@ func (s *Server) Stop(ctx context.Context) error {
     return nil
 }
 
+// Update the setupRoutes function to include new routes
+func (s *Server) setupRoutes() {
+    // Configure static file serving based on config
+    if s.config.Web.ServeStatic {
+        var staticDir string
+        
+        // Determine static directory
+        if s.config.Web.AssetsDir != "" {
+            // Use configured assets directory
+            if filepath.IsAbs(s.config.Web.StaticDir) {
+                staticDir = s.config.Web.StaticDir
+            } else {
+                staticDir = filepath.Join(s.config.Web.AssetsDir, s.config.Web.StaticDir)
+            }
+        } else {
+            // Auto-detect static directory
+            possibleStaticDirs := []string{
+                "./web/static",
+                "/usr/lib/raven/web/static",
+                "/opt/raven/web/static",
+            }
+            
+            for _, dir := range possibleStaticDirs {
+                if _, err := os.Stat(dir); err == nil {
+                    staticDir = dir
+                    break
+                }
+            }
+        }
+        
+        // Enable static serving if directory exists
+        if staticDir != "" {
+            if _, err := os.Stat(staticDir); err == nil {
+                s.router.Static("/static", staticDir)
+                logrus.WithField("static_dir", staticDir).Debug("Enabled static file serving")
+            } else {
+                logrus.WithField("static_dir", staticDir).Warn("Configured static directory not found")
+            }
+        }
+    }
+
+    // Main page
+    s.router.GET("/", s.serveSPA)
+    
+    // Favicon routes
+    s.router.GET("/favicon.ico", s.serveFaviconICO)
+    s.router.GET("/favicon.svg", s.serveFavicon)
+
+    // API routes
+    api := s.router.Group("/api")
+    {
+        // Host endpoints
+        api.GET("/hosts", s.getHosts)
+        api.GET("/hosts/:id", s.getHost)
+        api.POST("/hosts", s.createHost)
+        api.PUT("/hosts/:id", s.updateHost)
+        api.DELETE("/hosts/:id", s.deleteHost)
+
+        // Check endpoints
+        api.GET("/checks", s.getChecks)
+        api.GET("/checks/:id", s.getCheck)
+        api.POST("/checks", s.createCheck)
+        api.PUT("/checks/:id", s.updateCheck)
+        api.DELETE("/checks/:id", s.deleteCheck)
+
+        // Status endpoints
+        api.GET("/status", s.getStatus)
+        api.GET("/status/history/:host/:check", s.getStatusHistory)
+
+        // Alert endpoints
+        api.GET("/alerts", s.getAlerts)
+        api.GET("/alerts/summary", s.getAlertsSummary)
+
+        // System endpoints
+        api.GET("/stats", s.getStats)
+        api.GET("/health", s.healthCheck)
+        api.GET("/diagnostics/web", s.webDiagnostics)
+        api.GET("/build-info", s.getBuildInfo) // New build info endpoint
+    }
+
+    // WebSocket endpoint
+    s.router.GET("/ws", s.handleWebSocket)
+
+    // Prometheus metrics
+    if s.config.Prometheus.Enabled {
+        s.router.GET(s.config.Prometheus.MetricsPath, gin.WrapH(promhttp.Handler()))
+    }
+}
+
+// ... (rest of the existing server.go methods remain the same)
+// serveSPA, serveErrorPage, healthCheck, webDiagnostics, etc.
+
 // Update the serveSPA function to use config
 func (s *Server) serveSPA(c *gin.Context) {
     var indexPath string
@@ -206,12 +298,115 @@ web:<br>
 </html>`, s.config.Web.AssetsDir)
 }
 
-// Update the healthCheck function in internal/web/server.go
+// ... (include all other existing methods from the original server.go)
+
+func (s *Server) getStats(c *gin.Context) {
+    statuses, err := s.store.GetStatus(c.Request.Context(), database.StatusFilters{
+        Limit: 1000, // Get recent statuses for stats
+    })
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get status"})
+        return
+    }
+
+    stats := map[string]int{
+        "ok":       0,
+        "warning":  0,
+        "critical": 0,
+        "unknown":  0,
+    }
+
+    for _, status := range statuses {
+        switch status.ExitCode {
+        case 0:
+            stats["ok"]++
+        case 1:
+            stats["warning"]++
+        case 2:
+            stats["critical"]++
+        default:
+            stats["unknown"]++
+        }
+    }
+
+    c.JSON(http.StatusOK, gin.H{"data": stats})
+}
+
+func (s *Server) getChecks(c *gin.Context) {
+    checks, err := s.store.GetChecks(c.Request.Context())
+    if err != nil {
+        logrus.WithError(err).Error("Failed to get checks")
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get checks"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "data":  checks,
+        "count": len(checks),
+    })
+}
+
+func (s *Server) getCheck(c *gin.Context) {
+    id := c.Param("id")
+    
+    check, err := s.store.GetCheck(c.Request.Context(), id)
+    if err != nil {
+        if err.Error() == "check not found" {
+            c.JSON(http.StatusNotFound, gin.H{"error": "Check not found"})
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get check"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"data": check})
+}
+
+func (s *Server) getStatusHistory(c *gin.Context) {
+    hostID := c.Param("host")
+    checkID := c.Param("check")
+    
+    since := time.Now().Add(-24 * time.Hour) // Last 24 hours by default
+    if sinceStr := c.Query("since"); sinceStr != "" {
+        if parsedSince, err := time.Parse(time.RFC3339, sinceStr); err == nil {
+            since = parsedSince
+        }
+    }
+
+    history, err := s.store.GetStatusHistory(c.Request.Context(), hostID, checkID, since)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get status history"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "data":  history,
+        "count": len(history),
+    })
+}
+
+func (s *Server) updateMetricsRoutine(ctx context.Context) {
+    ticker := time.NewTicker(30 * time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-ticker.C:
+            if err := s.metrics.UpdateSystemMetrics(ctx); err != nil {
+                logrus.WithError(err).Error("Failed to update system metrics")
+            }
+        }
+    }
+}
+
+// Update the healthCheck function
 func (s *Server) healthCheck(c *gin.Context) {
     health := gin.H{
         "status":    "healthy",
         "timestamp": time.Now(),
-        "version":   "2.0.0",
+        "version":   Version, // Use build version
         "services":  gin.H{},
     }
     
@@ -270,7 +465,6 @@ func (s *Server) healthCheck(c *gin.Context) {
     }
     
     // Check monitoring engine
-    // Note: You might want to add a health check method to the engine
     services["monitoring"] = gin.H{"status": "healthy"}
     
     // Set HTTP status based on overall health
@@ -398,191 +592,6 @@ func (s *Server) webDiagnostics(c *gin.Context) {
     }
     
     c.JSON(http.StatusOK, diagnostics)
-}
-
-// Update the setupRoutes function in internal/web/server.go
-func (s *Server) setupRoutes() {
-    // Configure static file serving based on config
-    if s.config.Web.ServeStatic {
-        var staticDir string
-        
-        // Determine static directory
-        if s.config.Web.AssetsDir != "" {
-            // Use configured assets directory
-            if filepath.IsAbs(s.config.Web.StaticDir) {
-                staticDir = s.config.Web.StaticDir
-            } else {
-                staticDir = filepath.Join(s.config.Web.AssetsDir, s.config.Web.StaticDir)
-            }
-        } else {
-            // Auto-detect static directory
-            possibleStaticDirs := []string{
-                "./web/static",
-                "/usr/lib/raven/web/static",
-                "/opt/raven/web/static",
-            }
-            
-            for _, dir := range possibleStaticDirs {
-                if _, err := os.Stat(dir); err == nil {
-                    staticDir = dir
-                    break
-                }
-            }
-        }
-        
-        // Enable static serving if directory exists
-        if staticDir != "" {
-            if _, err := os.Stat(staticDir); err == nil {
-                s.router.Static("/static", staticDir)
-                logrus.WithField("static_dir", staticDir).Debug("Enabled static file serving")
-            } else {
-                logrus.WithField("static_dir", staticDir).Warn("Configured static directory not found")
-            }
-        }
-    }
-
-    // Main page
-    s.router.GET("/", s.serveSPA)
-
-    // API routes
-    api := s.router.Group("/api")
-    {
-        // Host endpoints
-        api.GET("/hosts", s.getHosts)
-        api.GET("/hosts/:id", s.getHost)
-        api.POST("/hosts", s.createHost)
-        api.PUT("/hosts/:id", s.updateHost)
-        api.DELETE("/hosts/:id", s.deleteHost)
-
-        // Check endpoints (now complete)
-        api.GET("/checks", s.getChecks)
-        api.GET("/checks/:id", s.getCheck)
-        api.POST("/checks", s.createCheck)
-        api.PUT("/checks/:id", s.updateCheck)     // Now implemented
-        api.DELETE("/checks/:id", s.deleteCheck)  // Now implemented
-
-        // Status endpoints
-        api.GET("/status", s.getStatus)
-        api.GET("/status/history/:host/:check", s.getStatusHistory)
-
-        // Alert endpoints (new)
-        api.GET("/alerts", s.getAlerts)           // New endpoint
-        api.GET("/alerts/summary", s.getAlertsSummary) // New endpoint
-
-        // System endpoints
-        api.GET("/stats", s.getStats)
-        api.GET("/health", s.healthCheck)
-        api.GET("/diagnostics/web", s.webDiagnostics)
-    }
-
-    // WebSocket endpoint
-    s.router.GET("/ws", s.handleWebSocket)
-
-    // Prometheus metrics
-    if s.config.Prometheus.Enabled {
-        s.router.GET(s.config.Prometheus.MetricsPath, gin.WrapH(promhttp.Handler()))
-    }
-}
-
-func (s *Server) getStats(c *gin.Context) {
-    statuses, err := s.store.GetStatus(c.Request.Context(), database.StatusFilters{
-        Limit: 1000, // Get recent statuses for stats
-    })
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get status"})
-        return
-    }
-
-    stats := map[string]int{
-        "ok":       0,
-        "warning":  0,
-        "critical": 0,
-        "unknown":  0,
-    }
-
-    for _, status := range statuses {
-        switch status.ExitCode {
-        case 0:
-            stats["ok"]++
-        case 1:
-            stats["warning"]++
-        case 2:
-            stats["critical"]++
-        default:
-            stats["unknown"]++
-        }
-    }
-
-    c.JSON(http.StatusOK, gin.H{"data": stats})
-}
-
-func (s *Server) getChecks(c *gin.Context) {
-    checks, err := s.store.GetChecks(c.Request.Context())
-    if err != nil {
-        logrus.WithError(err).Error("Failed to get checks")
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get checks"})
-        return
-    }
-
-    c.JSON(http.StatusOK, gin.H{
-        "data":  checks,
-        "count": len(checks),
-    })
-}
-
-func (s *Server) getCheck(c *gin.Context) {
-    id := c.Param("id")
-    
-    check, err := s.store.GetCheck(c.Request.Context(), id)
-    if err != nil {
-        if err.Error() == "check not found" {
-            c.JSON(http.StatusNotFound, gin.H{"error": "Check not found"})
-            return
-        }
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get check"})
-        return
-    }
-
-    c.JSON(http.StatusOK, gin.H{"data": check})
-}
-
-func (s *Server) getStatusHistory(c *gin.Context) {
-    hostID := c.Param("host")
-    checkID := c.Param("check")
-    
-    since := time.Now().Add(-24 * time.Hour) // Last 24 hours by default
-    if sinceStr := c.Query("since"); sinceStr != "" {
-        if parsedSince, err := time.Parse(time.RFC3339, sinceStr); err == nil {
-            since = parsedSince
-        }
-    }
-
-    history, err := s.store.GetStatusHistory(c.Request.Context(), hostID, checkID, since)
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get status history"})
-        return
-    }
-
-    c.JSON(http.StatusOK, gin.H{
-        "data":  history,
-        "count": len(history),
-    })
-}
-
-func (s *Server) updateMetricsRoutine(ctx context.Context) {
-    ticker := time.NewTicker(30 * time.Second)
-    defer ticker.Stop()
-
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case <-ticker.C:
-            if err := s.metrics.UpdateSystemMetrics(ctx); err != nil {
-                logrus.WithError(err).Error("Failed to update system metrics")
-            }
-        }
-    }
 }
 
 func corsMiddleware() gin.HandlerFunc {

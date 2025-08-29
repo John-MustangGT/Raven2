@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Raven Network Monitoring</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
@@ -63,6 +65,48 @@
             overflow-y: auto;
             transition: transform 0.3s ease;
             z-index: 100;
+            position: relative;
+        }
+        .sidebar.collapsed {
+            width: 80px;
+            padding: 2rem 0.5rem;
+        }
+
+        .sidebar.collapsed .logo h1 {
+            font-size: 1.2rem;
+            text-align: center;
+        }
+
+        .sidebar.collapsed .nav-link span {
+            display: none;
+        }
+
+        .sidebar.collapsed .nav-link {
+            justify-content: center;
+        }
+
+        .sidebar-toggle {
+            position: absolute;
+            top: 1rem;
+            right: -15px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            z-index: 110;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar-toggle:hover {
+            background: var(--primary-color);
+            color: white;
         }
 
         .sidebar-overlay {
@@ -590,6 +634,10 @@
             .sidebar.open {
                 transform: translateX(0);
             }
+
+            .sidebar.collapsed {
+                transform: translateX(-280px);
+            }
             
             .menu-toggle {
                 display: block;
@@ -681,47 +729,55 @@
         <div class="sidebar-overlay" :class="{ active: sidebarOpen }" @click="closeSidebar"></div>
         
         <!-- Sidebar -->
-        <div class="sidebar" :class="{ open: sidebarOpen }">
+        <div class="sidebar" :class="{ open: sidebarOpen, collapsed: sidebarCollapsed }">
+            <button class="sidebar-toggle" @click="toggleSidebarCollapse" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+                <i :class="sidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"></i>
+            </button>
             <div class="logo">
                 <h1>
                     <i class="fas fa-crow"></i>
-                    Raven
+                    <span v-if="!sidebarCollapsed">Raven</span>
                 </h1>
             </div>
             <ul class="nav-menu">
-                <li class="nav-item">
+<li class="nav-item">
                     <a class="nav-link" :class="{ active: currentView === 'dashboard' }" @click="setView('dashboard')">
                         <i class="fas fa-tachometer-alt"></i>
-                        Dashboard
+                        <span>Dashboard</span>
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link" :class="{ active: currentView === 'hosts' }" @click="setView('hosts')">
                         <i class="fas fa-server"></i>
-                        Hosts
+                        <span>Hosts</span>
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link" :class="{ active: currentView === 'checks' }" @click="setView('checks')">
                         <i class="fas fa-check-circle"></i>
-                        Checks
+                        <span>Checks</span>
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link" :class="{ active: currentView === 'alerts' }" @click="setView('alerts')">
                         <i class="fas fa-exclamation-triangle"></i>
-                        Alerts
+                        <span>Alerts</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" :class="{ active: currentView === 'about' }" @click="setView('about')">
+                        <i class="fas fa-info-circle"></i>
+                        <span>About</span>
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link" :class="{ active: currentView === 'settings' }" @click="setView('settings')">
                         <i class="fas fa-cog"></i>
-                        Settings
+                        <span>Settings</span>
                     </a>
                 </li>
             </ul>
         </div>
-
         <!-- Main Content -->
         <div class="main-content">
             <!-- Header -->
@@ -1144,6 +1200,180 @@
                     </div>
                 </div>
             </div>
+<!-- About View -->
+            <div v-if="currentView === 'about'">
+                <div class="data-table">
+                    <div class="table-header">
+                        <h3 class="table-title">About Raven</h3>
+                    </div>
+                    <div style="padding: 2rem;">
+                        <div v-if="loadingBuildInfo" class="loading">
+                            <div class="spinner"></div>
+                            Loading build information...
+                        </div>
+                        
+                        <div v-else>
+                            <div style="text-align: center; margin-bottom: 2rem;">
+                                <div style="font-size: 3rem; color: var(--primary-color); margin-bottom: 1rem;">
+                                    <i class="fas fa-crow"></i>
+                                </div>
+                                <h2 style="margin-bottom: 0.5rem;">Raven Network Monitoring</h2>
+                                <p style="color: var(--text-muted); font-size: 1.125rem;">
+                                    Advanced network monitoring and alerting system
+                                </p>
+                            </div>
+
+                            <div class="metrics-grid" style="margin-bottom: 2rem;">
+                                <div class="metric-card">
+                                    <div class="metric-header">
+                                        <span class="metric-title">Version</span>
+                                        <div class="metric-icon" style="background: #e0f2fe; color: #0277bd;">
+                                            <i class="fas fa-tag"></i>
+                                        </div>
+                                    </div>
+                                    <div class="metric-value" style="font-size: 1.5rem;">{{ buildInfo.version }}</div>
+                                    <div class="metric-change">Current release</div>
+                                </div>
+                                
+                                <div class="metric-card">
+                                    <div class="metric-header">
+                                        <span class="metric-title">Git Commit</span>
+                                        <div class="metric-icon" style="background: #fce4ec; color: #c2185b;">
+                                            <i class="fab fa-git-alt"></i>
+                                        </div>
+                                    </div>
+                                    <div class="metric-value" style="font-size: 1rem; font-family: monospace;">
+                                        {{ buildInfo.git_commit ? buildInfo.git_commit.substring(0, 8) : 'unknown' }}
+                                    </div>
+                                    <div class="metric-change">{{ buildInfo.git_branch || 'unknown' }} branch</div>
+                                </div>
+                                
+                                <div class="metric-card">
+                                    <div class="metric-header">
+                                        <span class="metric-title">Build Time</span>
+                                        <div class="metric-icon" style="background: #e8f5e9; color: #2e7d32;">
+                                            <i class="fas fa-clock"></i>
+                                        </div>
+                                    </div>
+                                    <div class="metric-value" style="font-size: 0.875rem;">{{ formatBuildTime(buildInfo.build_time) }}</div>
+                                    <div class="metric-change">Compilation date</div>
+                                </div>
+                                
+                                <div class="metric-card">
+                                    <div class="metric-header">
+                                        <span class="metric-title">Go Version</span>
+                                        <div class="metric-icon" style="background: #e3f2fd; color: #1976d2;">
+                                            <i class="fab fa-golang"></i>
+                                        </div>
+                                    </div>
+                                    <div class="metric-value" style="font-size: 1.25rem;">{{ buildInfo.go_version || 'unknown' }}</div>
+                                    <div class="metric-change">{{ buildInfo.go_os }}/{{ buildInfo.go_arch }}</div>
+                                </div>
+                            </div>
+
+                            <!-- Build Details -->
+                            <div class="data-table" style="margin-bottom: 2rem;">
+                                <div class="table-header">
+                                    <h4 class="table-title">Build Details</h4>
+                                </div>
+                                <div class="table-content">
+                                    <table>
+                                        <tbody>
+                                            <tr>
+                                                <td style="font-weight: 600; width: 200px;">Operating System</td>
+                                                <td>{{ buildInfo.go_os || 'unknown' }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-weight: 600;">Architecture</td>
+                                                <td>{{ buildInfo.go_arch || 'unknown' }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-weight: 600;">CGO Enabled</td>
+                                                <td>
+                                                    <span :class="buildInfo.cgo_enabled === 'true' ? 'status-badge status-ok' : 'status-badge status-unknown'">
+                                                        {{ buildInfo.cgo_enabled === 'true' ? 'Yes' : 'No' }}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-weight: 600;">Build Flags</td>
+                                                <td style="font-family: monospace; font-size: 0.875rem;">
+                                                    {{ buildInfo.build_flags || 'none' }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-weight: 600;">Git Branch</td>
+                                                <td>
+                                                    <span class="status-badge" style="background: var(--light-bg); color: var(--text-primary);">
+                                                        {{ buildInfo.git_branch || 'unknown' }}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-weight: 600;">Full Git Commit</td>
+                                                <td style="font-family: monospace; font-size: 0.875rem;">
+                                                    {{ buildInfo.git_commit || 'unknown' }}
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Dependencies -->
+                            <div class="data-table">
+                                <div class="table-header">
+                                    <h4 class="table-title">Go Modules & Dependencies</h4>
+                                </div>
+                                <div class="table-content">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Module</th>
+                                                <th>Version</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="module in buildInfo.modules" :key="module.path">
+                                                <td style="font-family: monospace; font-size: 0.875rem;">
+                                                    {{ module.path }}
+                                                </td>
+                                                <td>
+                                                    <span class="status-badge" style="background: var(--light-bg); color: var(--text-primary);">
+                                                        {{ module.version }}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <span v-if="module.replace" class="status-badge status-warning">
+                                                        <i class="fas fa-exchange-alt"></i> Replaced
+                                                    </span>
+                                                    <span v-else class="status-badge status-ok">
+                                                        <i class="fas fa-check"></i> Direct
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Footer -->
+                            <div style="text-align: center; margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--border-color); color: var(--text-muted);">
+                                <p>
+                                    <i class="fas fa-heart" style="color: var(--danger-color);"></i>
+                                    Built with Go and Vue.js
+                                </p>
+                                <p style="font-size: 0.875rem; margin-top: 0.5rem;">
+                                    © 2024 Raven Network Monitoring System
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings View -->
         </div>
 
         <!-- Host Modal -->
@@ -1328,8 +1558,10 @@
                     currentView: 'dashboard',
                     theme: localStorage.getItem('theme') || 'light',
                     sidebarOpen: false,
+                    sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === 'true',
                     connected: false,
                     loading: false,
+                    loadingBuildInfo: false,
                     saving: false,
                     searchQuery: '',
                     filterGroup: '',
@@ -1350,6 +1582,18 @@
                         unknown: 0
                     },
                     recentActivity: [],
+                    buildInfo: {
+                        version: 'Loading...',
+                        git_commit: '',
+                        git_branch: '',
+                        build_time: '',
+                        go_version: '',
+                        go_os: '',
+                        go_arch: '',
+                        cgo_enabled: '',
+                        build_flags: '',
+                        modules: []
+                    },
                     hostForm: this.getEmptyHostForm(),
                     checkForm: this.getEmptyCheckForm(),
                     settings: {
@@ -1371,7 +1615,8 @@
                         hosts: 'Hosts',
                         checks: 'Checks',
                         alerts: 'Alerts',
-                        settings: 'Settings'
+                        settings: 'Settings',
+                        about: 'About'
                     };
                     return titles[this.currentView] || 'Dashboard';
                 },
@@ -1454,7 +1699,33 @@
                         this.loadChecks();
                     } else if (view === 'alerts') {
                         this.loadAlerts();
+                    } else if (view === 'about') {
+                        this.loadBuildInfo();
                     }
+                },
+                async loadBuildInfo() {
+                    this.loadingBuildInfo = true;
+                    try {
+                        const response = await axios.get('/api/build-info');
+                        this.buildInfo = response.data.data;
+                    } catch (error) {
+                        console.error('Failed to load build info:', error);
+                        this.showNotification('error', 'Failed to load build information');
+                    } finally {
+                        this.loadingBuildInfo = false;
+                    }
+                },
+                formatBuildTime(buildTime) {
+                    if (!buildTime || buildTime === 'unknown') return 'Unknown';
+                    try {
+                        return new Date(buildTime).toLocaleString();
+                    } catch {
+                        return buildTime;
+                    }
+                },
+                exportConfig() {
+                    // This would export the current configuration
+                    this.showNotification('info', 'Configuration export not implemented yet');
                 },
                 async loadChecks() {
                     this.loading = true;
@@ -1619,6 +1890,10 @@
                 },
                 closeSidebar() {
                     this.sidebarOpen = false;
+                },
+                toggleSidebarCollapse() {
+                    this.sidebarCollapsed = !this.sidebarCollapsed;
+                    localStorage.setItem('sidebarCollapsed', this.sidebarCollapsed.toString());
                 },
                 toggleTheme() {
                     this.theme = this.theme === 'light' ? 'dark' : 'light';
