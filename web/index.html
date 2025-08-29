@@ -900,6 +900,8 @@
                         </table>
                     </div>
                 </div>
+            </div>
+
             <!-- Checks View -->
             <div v-if="currentView === 'checks'">
                 <div class="data-table">
@@ -929,14 +931,14 @@
                         </div>
                         
                         <!-- Debug info - remove in production -->
-                        <div v-if="!loading && checks.length === 0" style="padding: 1rem; background: var(--light-bg); margin: 1rem; border-radius: 0.5rem;">
+                        <div v-else-if="checks.length === 0" style="padding: 1rem; background: var(--light-bg); margin: 1rem; border-radius: 0.5rem;">
                             <h4>Debug Info:</h4>
                             <p>Checks array length: {{ checks.length }}</p>
                             <p>Raw checks data: <pre style="font-size: 0.8rem;">{{ JSON.stringify(checks, null, 2).substring(0, 500) }}...</pre></p>
                             <button @click="loadChecks()" class="btn btn-secondary btn-small">Reload Checks</button>
                         </div>
                         
-                        <table v-else-if="!loading">
+                        <table v-else>
                             <thead>
                                 <tr>
                                     <th>Name</th>
@@ -1350,7 +1352,6 @@
                     recentActivity: [],
                     hostForm: this.getEmptyHostForm(),
                     checkForm: this.getEmptyCheckForm(),
-                    checkForm: this.getEmptyCheckForm(),
                     settings: {
                         darkMode: localStorage.getItem('theme') === 'dark',
                         refreshInterval: 30
@@ -1374,6 +1375,23 @@
                     };
                     return titles[this.currentView] || 'Dashboard';
                 },
+                filteredHosts() {
+                    return this.hosts.filter(host => {
+                        const matchesSearch = !this.searchQuery || 
+                            host.name.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+                            (host.display_name && host.display_name.toLowerCase().includes(this.searchQuery.toLowerCase())) ||
+                            (host.ipv4 && host.ipv4.includes(this.searchQuery)) ||
+                            (host.hostname && host.hostname.toLowerCase().includes(this.searchQuery.toLowerCase()));
+                        
+                        const matchesGroup = !this.filterGroup || host.group === this.filterGroup;
+                        
+                        return matchesSearch && matchesGroup;
+                    });
+                },
+                groups() {
+                    const groups = [...new Set(this.hosts.map(host => host.group))];
+                    return groups.filter(Boolean).sort();
+                },
                 filteredChecks() {
                     return this.checks.filter(check => {
                         const matchesSearch = !this.searchChecksQuery || 
@@ -1393,60 +1411,19 @@
                 activeAlerts() {
                     return this.alerts.filter(alert => alert.severity !== 'ok');
                 },
-                criticalAlerts() {
-                    return this.alerts.filter(alert => alert.severity === 'critical');
-                },
-                warningAlerts() {
-                    return this.alerts.filter(alert => alert.severity === 'warning');
-                },
-                groups() {
-                    const groups = [...new Set(this.hosts.map(host => host.group))];
-                    return groups.filter(Boolean).sort();
-                }
-                filteredChecks() {
-                    return this.checks.filter(check => {
-                        const matchesSearch = !this.searchChecksQuery || 
-                            check.name.toLowerCase().includes(this.searchChecksQuery.toLowerCase()) ||
-                            check.id.toLowerCase().includes(this.searchChecksQuery.toLowerCase()) ||
-                            check.type.toLowerCase().includes(this.searchChecksQuery.toLowerCase());
-                        
-                        const matchesType = !this.filterCheckType || check.type === this.filterCheckType;
-                        
-                        return matchesSearch && matchesType;
-                    });
-                },
-                checkTypes() {
-                    const types = [...new Set(this.checks.map(check => check.type))];
-                    return types.filter(Boolean).sort();
-                },
-                activeAlerts() {
-                    return this.alerts.filter(alert => alert.severity !== 'ok');
-                },
-                criticalAlerts() {
-                    return this.alerts.filter(alert => alert.severity === 'critical');
-                },
-                warningAlerts() {
-                    return this.alerts.filter(alert => alert.severity === 'warning');
+                alertMetrics() {
+                    return {
+                        active: this.activeAlerts.length,
+                        critical: this.alerts.filter(alert => alert.severity === 'critical').length,
+                        warning: this.alerts.filter(alert => alert.severity === 'warning').length
+                    };
                 },
                 filteredAlerts() {
                     if (this.alertFilter === 'all') {
                         return this.activeAlerts;
                     }
                     return this.alerts.filter(alert => alert.severity === this.alertFilter);
-                },
-                filteredHosts() {
-                    return this.hosts.filter(host => {
-                        const matchesSearch = !this.searchQuery || 
-                            host.name.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
-                            (host.display_name && host.display_name.toLowerCase().includes(this.searchQuery.toLowerCase())) ||
-                            (host.ipv4 && host.ipv4.includes(this.searchQuery)) ||
-                            (host.hostname && host.hostname.toLowerCase().includes(this.searchQuery.toLowerCase()));
-                        
-                        const matchesGroup = !this.filterGroup || host.group === this.filterGroup;
-                        
-                        return matchesSearch && matchesGroup;
-                    });
-                },
+                }
             },
             mounted() {
                 document.documentElement.setAttribute('data-theme', this.theme);
