@@ -188,7 +188,7 @@ func (s *Scheduler) processSchedule() {
                     HostID:  host.ID,
                     CheckID: check.ID,
                     Host:    host,
-                    Check:   check,
+                    Check:   &check,
                     NextRun: now,
                     State:   currentState,
                 }
