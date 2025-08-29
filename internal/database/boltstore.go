@@ -294,6 +294,29 @@ func (s *BoltStore) GetStatusHistory(ctx context.Context, hostID, checkID string
     return statuses, err
 }
 
+func (s *BoltStore) UpdateCheck(ctx context.Context, check *Check) error {
+    check.UpdatedAt = time.Now()
+
+    return s.db.Update(func(tx *bbolt.Tx) error {
+        b := tx.Bucket(ChecksBucket)
+        
+        data, err := json.Marshal(check)
+        if err != nil {
+            return fmt.Errorf("failed to marshal check: %w", err)
+        }
+
+        return b.Put([]byte(check.ID), data)
+    })
+}
+
+func (s *BoltStore) DeleteCheck(ctx context.Context, id string) error {
+    return s.db.Update(func(tx *bbolt.Tx) error {
+        b := tx.Bucket(ChecksBucket)
+        return b.Delete([]byte(id))
+    })
+}
+
 func (s *BoltStore) Close() error {
     return s.db.Close()
 }
+
