@@ -61,6 +61,17 @@
             grid-template-columns: 80px 1fr;
         }
 
+        /* Mobile-first approach - hide sidebar by default on mobile */
+        @media (max-width: 1024px) {
+            .app {
+                grid-template-columns: 1fr;
+            }
+            
+            .app.sidebar-collapsed {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .sidebar {
             background: var(--card-bg);
             border-right: 1px solid var(--border-color);
@@ -70,6 +81,23 @@
             transition: all 0.3s ease;
             z-index: 100;
             position: relative;
+        }
+
+        /* Mobile sidebar positioning */
+        @media (max-width: 1024px) {
+            .sidebar {
+                position: fixed;
+                left: 0;
+                top: 0;
+                height: 100vh;
+                width: 280px;
+                transform: translateX(-100%);
+                z-index: 200;
+            }
+            
+            .sidebar.mobile-open {
+                transform: translateX(0);
+            }
         }
 
         .sidebar.collapsed {
@@ -118,6 +146,13 @@
             color: white;
         }
 
+        /* Hide desktop sidebar toggle on mobile */
+        @media (max-width: 1024px) {
+            .sidebar-toggle {
+                display: none;
+            }
+        }
+
         .sidebar-overlay {
             position: fixed;
             top: 0;
@@ -125,7 +160,7 @@
             right: 0;
             bottom: 0;
             background: rgba(0, 0, 0, 0.5);
-            z-index: 99;
+            z-index: 150;
             opacity: 0;
             visibility: hidden;
             transition: all 0.3s ease;
@@ -218,6 +253,13 @@
         .menu-toggle:hover {
             background: var(--primary-color);
             color: white;
+        }
+
+        /* Show mobile menu toggle only on mobile */
+        @media (max-width: 1024px) {
+            .menu-toggle {
+                display: block;
+            }
         }
 
         .theme-toggle {
@@ -626,42 +668,6 @@
             100% { transform: rotate(360deg); }
         }
 
-        @media (max-width: 1024px) {
-            .app {
-                grid-template-columns: 1fr;
-            }
-            
-            .app.sidebar-collapsed {
-                grid-template-columns: 1fr;
-            }
-            
-            .sidebar {
-                position: fixed;
-                left: 0;
-                top: 0;
-                height: 100vh;
-                z-index: 100;
-                transform: translateX(-280px);
-                width: 280px;
-            }
-            
-            .sidebar.open {
-                transform: translateX(0);
-            }
-            
-            .sidebar.collapsed {
-                transform: translateX(-280px);
-            }
-            
-            .menu-toggle {
-                display: block;
-            }
-            
-            .main-content {
-                margin-left: 0;
-            }
-        }
-
         @media (max-width: 768px) {
             .metrics-grid {
                 grid-template-columns: 1fr;
@@ -738,15 +744,15 @@
     </style>
 </head>
 <body>
-        <div id="app" :data-theme="theme" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+    <div id="app" :data-theme="theme" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
         <!-- Sidebar Overlay -->
         <div class="sidebar-overlay" :class="{ active: sidebarOpen }" @click="closeSidebar"></div>
         
         <!-- Sidebar -->
-        <div class="sidebar" :class="{ open: sidebarOpen, collapsed: sidebarCollapsed }">
-        <button class="sidebar-toggle" @click="toggleSidebarCollapse" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
-            <i :class="sidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"></i>
-        </button>
+        <div class="sidebar" :class="{ 'mobile-open': sidebarOpen, collapsed: sidebarCollapsed }">
+            <button class="sidebar-toggle" @click="toggleSidebarCollapse" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+                <i :class="sidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"></i>
+            </button>
             <div class="logo">
                 <h1>
                     <i class="fas fa-crow"></i>
@@ -1689,8 +1695,46 @@
                         this.loadAlerts();
                     }
                 }, this.settings.refreshInterval * 1000);
+
+                // Close sidebar when clicking outside on mobile
+                document.addEventListener('click', (e) => {
+                    if (window.innerWidth <= 1024 && this.sidebarOpen) {
+                        const sidebar = document.querySelector('.sidebar');
+                        const menuToggle = document.querySelector('.menu-toggle');
+                        if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+                            this.sidebarOpen = false;
+                        }
+                    }
+                });
             },
             methods: {
+                getEmptyHostForm() {
+                    return {
+                        name: '',
+                        display_name: '',
+                        ipv4: '',
+                        hostname: '',
+                        group: 'default',
+                        enabled: true
+                    };
+                },
+                getEmptyCheckForm() {
+                    return {
+                        name: '',
+                        type: 'ping',
+                        hosts: [],
+                        interval: {
+                            ok: '5m',
+                            warning: '2m',
+                            critical: '1m',
+                            unknown: '1m'
+                        },
+                        threshold: 3,
+                        timeout: '30s',
+                        enabled: true,
+                        options: {}
+                    };
+                },
                 setView(view) {
                     this.currentView = view;
                     this.closeSidebar();
@@ -1848,23 +1892,6 @@
                         this.showNotification('error', 'Failed to delete check');
                     }
                 },
-                getEmptyCheckForm() {
-                    return {
-                        name: '',
-                        type: 'ping',
-                        hosts: [],
-                        interval: {
-                            ok: '5m',
-                            warning: '2m',
-                            critical: '1m',
-                            unknown: '1m'
-                        },
-                        threshold: 3,
-                        timeout: '30s',
-                        enabled: true,
-                        options: {}
-                    };
-                },
                 exportConfig() {
                     this.showNotification('info', 'Configuration export not implemented yet');
                 },
@@ -2001,16 +2028,6 @@
                         console.error('Failed to delete host:', error);
                         this.showNotification('error', 'Failed to delete host');
                     }
-                },
-                getEmptyHostForm() {
-                    return {
-                        name: '',
-                        display_name: '',
-                        ipv4: '',
-                        hostname: '',
-                        group: 'default',
-                        enabled: true
-                    };
                 },
                 showNotification(type, message) {
                     this.notification = { show: true, type, message };
