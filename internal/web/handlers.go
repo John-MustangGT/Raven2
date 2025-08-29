@@ -52,12 +52,31 @@ func (s *Server) getHosts(c *gin.Context) {
         return
     }
 
-    // Enhance with status information
+    // Enhance with status information - Fix: process each host individually
     response := make([]HostResponse, 0, len(hosts))
-    for _, host := range hosts {
+    for i := range hosts { // Use index to avoid pointer issues
+        host := hosts[i] // Get individual host
+        
+        // Get status for this specific host
+        status := s.getHostStatus(c.Request.Context(), host.ID)
+        
+        // Get latest status timestamp for this host
+        statuses, err := s.store.GetStatus(c.Request.Context(), database.StatusFilters{
+            HostID: host.ID,
+            Limit:  1,
+        })
+        
+        var lastCheck time.Time
+        if err == nil && len(statuses) > 0 {
+            lastCheck = statuses[0].Timestamp
+        }
+
         hostResp := HostResponse{
-            Host:   &host,
-            Status: s.getHostStatus(c.Request.Context(), host.ID),
+            Host:       &host, // Use address of the specific host
+            Status:     status,
+            LastCheck:  lastCheck,
+            NextCheck:  time.Time{}, // TODO: Calculate from scheduler
+            CheckCount: 0,           // TODO: Count active checks for this host
         }
         response = append(response, hostResp)
     }

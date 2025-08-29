@@ -1,0 +1,28 @@
+#!/bin/bash
+# prerm script for raven
+
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        # Stop the service
+        if systemctl is-active --quiet raven.service; then
+            systemctl stop raven.service
+        fi
+        
+        # Disable the service
+        if systemctl is-enabled --quiet raven.service; then
+            systemctl disable raven.service
+        fi
+        ;;
+
+    failed-upgrade)
+        ;;
+
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

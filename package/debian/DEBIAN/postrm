@@ -1,0 +1,39 @@
+#!/bin/bash
+# postrm script for raven
+
+set -e
+
+case "$1" in
+    purge)
+        # Remove user and group
+        if getent passwd raven >/dev/null 2>&1; then
+            deluser --quiet raven || true
+        fi
+        
+        if getent group raven >/dev/null 2>&1; then
+            delgroup --quiet raven || true
+        fi
+
+        # Remove configuration and data (ask user first)
+        echo "Raven has been removed."
+        echo ""
+        echo "To completely remove all data and configuration files:"
+        echo "  sudo rm -rf /etc/raven"
+        echo "  sudo rm -rf /var/lib/raven"
+        echo "  sudo rm -rf /var/log/raven"
+        echo ""
+        echo "WARNING: This will permanently delete all monitoring data!"
+        ;;
+
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # Reload systemd daemon
+        systemctl daemon-reload || true
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

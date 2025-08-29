@@ -1,0 +1,53 @@
+[Unit]
+Description=Raven Network Monitoring System
+Documentation=https://github.com/John-MustangGT/raven2
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Service]
+Type=exec
+User=raven
+Group=raven
+ExecStart=/usr/bin/raven -config /etc/raven/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=30
+TimeoutStopSec=15
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/raven /var/log/raven
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=raven
+
+# Environment
+Environment=RAVEN_CONFIG_FILE=/etc/raven/config.yaml
+Environment=RAVEN_DATA_DIR=/var/lib/raven
+Environment=RAVEN_LOG_DIR=/var/log/raven
+
+[Install]
+WantedBy=multi-user.target

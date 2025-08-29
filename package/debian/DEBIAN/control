@@ -1,0 +1,27 @@
+Package: raven
+Version: 2.0.0
+Section: net
+Priority: optional
+Architecture: amd64
+Essential: no
+Depends: libc6 (>= 2.17), adduser
+Recommends: nagios-plugins-basic, nmap
+Suggests: nagios-plugins, monitoring-plugins
+Maintainer: Raven Development Team <dev@raven.local>
+Description: Modern network monitoring and alerting system
+ Raven is a lightweight, modern network monitoring system built in Go.
+ It provides real-time monitoring of network hosts and services with
+ a clean web interface, Prometheus metrics, and flexible alerting.
+ .
+ Features:
+  - Real-time host and service monitoring
+  - Modern responsive web interface
+  - Prometheus metrics integration
+  - WebSocket-based live updates
+  - Plugin-based check system
+  - Network discovery with nmap integration
+  - BoltDB embedded database
+  - Systemd service integration
+ .
+ This package includes the main raven daemon and raven-discover utility
+ for automatic network discovery and configuration generation.

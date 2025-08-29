@@ -52,6 +52,7 @@
             display: grid;
             grid-template-columns: 280px 1fr;
             min-height: 100vh;
+            position: relative;
         }
 
         .sidebar {
@@ -60,6 +61,26 @@
             padding: 2rem 0;
             box-shadow: var(--shadow);
             overflow-y: auto;
+            transition: transform 0.3s ease;
+            z-index: 100;
+        }
+
+        .sidebar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 99;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar-overlay.active {
+            opacity: 1;
+            visibility: visible;
         }
 
         .logo {
@@ -110,7 +131,7 @@
 
         .header {
             display: flex;
-            justify-content: between;
+            justify-content: space-between;
             align-items: center;
             margin-bottom: 2rem;
             gap: 1rem;
@@ -129,6 +150,23 @@
             margin-left: auto;
         }
 
+        .menu-toggle {
+            display: none;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 1.25rem;
+            color: var(--text-primary);
+        }
+
+        .menu-toggle:hover {
+            background: var(--primary-color);
+            color: white;
+        }
+
         .theme-toggle {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
@@ -136,6 +174,7 @@
             border-radius: 0.5rem;
             cursor: pointer;
             transition: all 0.2s ease;
+            color: var(--text-primary);
         }
 
         .theme-toggle:hover {
@@ -534,24 +573,34 @@
             100% { transform: rotate(360deg); }
         }
 
-        @media (max-width: 768px) {
+        @media (max-width: 1024px) {
             .app {
                 grid-template-columns: 1fr;
             }
             
             .sidebar {
                 position: fixed;
-                left: -280px;
+                left: 0;
                 top: 0;
                 height: 100vh;
                 z-index: 100;
-                transition: left 0.3s ease;
+                transform: translateX(-280px);
             }
             
             .sidebar.open {
-                left: 0;
+                transform: translateX(0);
             }
             
+            .menu-toggle {
+                display: block;
+            }
+            
+            .main-content {
+                margin-left: 0;
+            }
+        }
+
+        @media (max-width: 768px) {
             .metrics-grid {
                 grid-template-columns: 1fr;
             }
@@ -564,13 +613,73 @@
             .header-actions {
                 margin-left: 0;
                 width: 100%;
-                justify-content: flex-end;
+                justify-content: space-between;
+            }
+            
+            .page-title {
+                font-size: 1.5rem;
+            }
+            
+            .table-header {
+                flex-direction: column;
+                gap: 1rem;
+                align-items: stretch;
+            }
+            
+            .search-box {
+                flex-direction: column;
+                width: 100%;
+            }
+            
+            .search-input {
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .main-content {
+                padding: 1rem;
+            }
+            
+            .metric-card {
+                padding: 1rem;
+            }
+            
+            .metric-value {
+                font-size: 2rem;
+            }
+            
+            th, td {
+                padding: 0.75rem 0.5rem;
+                font-size: 0.875rem;
+            }
+            
+            .btn {
+                padding: 0.5rem 1rem;
+                font-size: 0.875rem;
+            }
+            
+            .btn-text {
+                display: none;
+            }
+            
+            .actions {
+                flex-direction: column;
+                gap: 0.25rem;
+            }
+            
+            .btn-small {
+                padding: 0.4rem 0.6rem;
+                font-size: 0.8rem;
             }
         }
     </style>
 </head>
 <body>
     <div id="app" :data-theme="theme">
+        <!-- Sidebar Overlay -->
+        <div class="sidebar-overlay" :class="{ active: sidebarOpen }" @click="closeSidebar"></div>
+        
         <!-- Sidebar -->
         <div class="sidebar" :class="{ open: sidebarOpen }">
             <div class="logo">
@@ -617,7 +726,12 @@
         <div class="main-content">
             <!-- Header -->
             <div class="header">
-                <h1 class="page-title">{{ pageTitle }}</h1>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <button class="menu-toggle" @click="toggleSidebar" title="Toggle menu">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <h1 class="page-title">{{ pageTitle }}</h1>
+                </div>
                 <div class="header-actions">
                     <div class="connection-status">
                         <div class="connection-indicator" :class="{ disconnected: !connected }"></div>
@@ -628,7 +742,7 @@
                     </button>
                     <button class="btn btn-primary" v-if="currentView === 'hosts'" @click="openAddHostModal">
                         <i class="fas fa-plus"></i>
-                        Add Host
+                        <span class="btn-text">Add Host</span>
                     </button>
                 </div>
             </div>
@@ -748,7 +862,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="host in filteredHosts" :key="host.id">
+                                <tr v-for="(host, index) in filteredHosts" :key="`${host.id}-${index}`">
                                     <td>
                                         <div>
                                             <div style="font-weight: 500;">{{ host.display_name || host.name }}</div>
@@ -824,7 +938,6 @@
                             v-model="hostForm.ipv4" 
                             class="form-input" 
                             type="text"
-                            placeholder="e.g., 192.168.1.10"
                         >
                     </div>
                     <div class="form-group">
@@ -946,11 +1059,17 @@
             methods: {
                 setView(view) {
                     this.currentView = view;
-                    this.sidebarOpen = false;
+                    this.closeSidebar(); // Close sidebar when selecting a view
                     
                     if (view === 'hosts') {
                         this.loadHosts();
                     }
+                },
+                toggleSidebar() {
+                    this.sidebarOpen = !this.sidebarOpen;
+                },
+                closeSidebar() {
+                    this.sidebarOpen = false;
                 },
                 toggleTheme() {
                     this.theme = this.theme === 'light' ? 'dark' : 'light';
@@ -961,7 +1080,9 @@
                     this.loading = true;
                     try {
                         const response = await axios.get('/api/hosts');
+                        console.log('Hosts API response:', response.data); // Debug logging
                         this.hosts = response.data.data || [];
+                        console.log('Processed hosts:', this.hosts); // Debug logging
                     } catch (error) {
                         console.error('Failed to load hosts:', error);
                         this.showNotification('error', 'Failed to load hosts');

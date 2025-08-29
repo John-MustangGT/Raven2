@@ -1,0 +1,72 @@
+#!/bin/bash
+# postinst script for raven
+
+set -e
+
+case "$1" in
+    configure)
+        # Create raven user and group
+        if ! getent group raven >/dev/null 2>&1; then
+            addgroup --system --quiet raven
+        fi
+        
+        if ! getent passwd raven >/dev/null 2>&1; then
+            adduser --system --quiet \
+                --home /var/lib/raven \
+                --no-create-home \
+                --ingroup raven \
+                --disabled-password \
+                --shell /bin/false \
+                --gecos "Raven Network Monitoring" \
+                raven
+        fi
+
+        # Set proper ownership and permissions
+        chown -R raven:raven /var/lib/raven
+        chown -R raven:raven /var/log/raven
+        chown root:raven /etc/raven/config.yaml
+        chmod 640 /etc/raven/config.yaml
+        chmod 755 /var/lib/raven
+        chmod 755 /var/log/raven
+
+        # Create data directory structure
+        mkdir -p /var/lib/raven/data
+        mkdir -p /var/lib/raven/backups
+        chown -R raven:raven /var/lib/raven
+
+        # Reload systemd and enable service
+        systemctl daemon-reload
+        
+        # Enable but don't start the service automatically
+        systemctl enable raven.service
+        
+        echo "Raven has been installed successfully!"
+        echo ""
+        echo "Configuration file: /etc/raven/config.yaml"
+        echo "Data directory:     /var/lib/raven"
+        echo "Log directory:      /var/log/raven"
+        echo ""
+        echo "To discover your network and generate initial configuration:"
+        echo "  sudo raven-discover -network 192.168.1.0/24 -output /tmp/discovered.yaml"
+        echo "  # Review the generated config and merge with /etc/raven/config.yaml"
+        echo ""
+        echo "To start Raven:"
+        echo "  sudo systemctl start raven"
+        echo ""
+        echo "To check status:"
+        echo "  sudo systemctl status raven"
+        echo "  sudo journalctl -u raven -f"
+        echo ""
+        echo "Web interface will be available at: http://localhost:8000"
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

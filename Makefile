@@ -7,6 +7,14 @@ GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 GOFMT=$(GOCMD) fmt
 
+# Deb build info
+VERSION ?= 2.0.0
+ARCH ?= amd64
+PACKAGE_NAME = raven
+BUILD_DIR = build
+DEB_DIR = $(BUILD_DIR)/$(PACKAGE_NAME)_$(VERSION)_$(ARCH)
+
+
 # Makefile for building and deployment
 .PHONY: build run test clean docker deploy
 
@@ -35,7 +43,7 @@ run: build
 test:
 	go test -v ./...
 
-clean: clean-discover
+clean: clean-discover clean-deb
 	rm -rf bin/ data/
 
 docker:
@@ -75,3 +83,70 @@ setup-dev:
 	mkdir -p data plugins
 	go mod download
 	@echo "Development environment ready!"
+
+# Build Debian package
+.PHONY: deb
+deb: build discover
+	@echo "Building Debian package v$(VERSION)..."
+	@rm -rf $(BUILD_DIR)
+	@mkdir -p $(DEB_DIR)/DEBIAN
+	@mkdir -p $(DEB_DIR)/usr/bin
+	@mkdir -p $(DEB_DIR)/usr/lib/raven
+	@mkdir -p $(DEB_DIR)/etc/raven
+	@mkdir -p $(DEB_DIR)/etc/systemd/system
+	@mkdir -p $(DEB_DIR)/var/lib/raven/data
+	@mkdir -p $(DEB_DIR)/var/log/raven
+	@mkdir -p $(DEB_DIR)/usr/share/doc/raven
+
+	# Copy binaries
+	@cp bin/raven $(DEB_DIR)/usr/bin/
+	@cp bin/raven-discover $(DEB_DIR)/usr/bin/
+	@chmod 755 $(DEB_DIR)/usr/bin/raven
+	@chmod 755 $(DEB_DIR)/usr/bin/raven-discover
+
+	# Copy web assets
+	@cp -r web $(DEB_DIR)/usr/lib/raven/
+
+	# Copy Debian control files
+	@cp debian/DEBIAN/control $(DEB_DIR)/DEBIAN/
+	@cp debian/DEBIAN/postinst $(DEB_DIR)/DEBIAN/
+	@cp debian/DEBIAN/prerm $(DEB_DIR)/DEBIAN/
+	@cp debian/DEBIAN/postrm $(DEB_DIR)/DEBIAN/
+	@chmod 755 $(DEB_DIR)/DEBIAN/postinst
+	@chmod 755 $(DEB_DIR)/DEBIAN/prerm
+	@chmod 755 $(DEB_DIR)/DEBIAN/postrm
+
+	# Copy systemd service
+	@cp debian/etc/systemd/system/raven.service $(DEB_DIR)/etc/systemd/system/
+
+	# Create default config
+	@cp debian/etc/raven/config.yaml $(DEB_DIR)/etc/raven/
+
+	# Create documentation
+	@echo "Raven Network Monitoring System v$(VERSION)" > $(DEB_DIR)/usr/share/doc/raven/README
+	@echo "" >> $(DEB_DIR)/usr/share/doc/raven/README
+	@echo "See /etc/raven/config.yaml for configuration options." >> $(DEB_DIR)/usr/share/doc/raven/README
+	@echo "Use 'systemctl start raven' to start the service." >> $(DEB_DIR)/usr/share/doc/raven/README
+
+	# Build the package
+	@dpkg-deb --build $(DEB_DIR)
+	@echo "Debian package created: $(DEB_DIR).deb"
+
+# Install the built deb package
+.PHONY: install-deb
+install-deb: deb
+	@echo "Installing Raven Debian package..."
+	@sudo dpkg -i $(DEB_DIR).deb
+
+# Clean up build artifacts
+.PHONY: clean-deb
+clean-deb:
+	@rm -rf $(BUILD_DIR)
+
+# Create directory structure for development
+.PHONY: setup-debian
+setup-debian:
+	@mkdir -p debian/DEBIAN
+	@mkdir -p debian/etc/raven
+	@mkdir -p debian/etc/systemd/system
+
