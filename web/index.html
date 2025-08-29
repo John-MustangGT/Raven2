@@ -738,15 +738,15 @@
     </style>
 </head>
 <body>
-    <div id="app" :data-theme="theme" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+        <div id="app" :data-theme="theme" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
         <!-- Sidebar Overlay -->
         <div class="sidebar-overlay" :class="{ active: sidebarOpen }" @click="closeSidebar"></div>
         
         <!-- Sidebar -->
         <div class="sidebar" :class="{ open: sidebarOpen, collapsed: sidebarCollapsed }">
-            <button class="sidebar-toggle" @click="toggleSidebarCollapse" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
-                <i :class="sidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"></i>
-            </button>
+        <button class="sidebar-toggle" @click="toggleSidebarCollapse" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+            <i :class="sidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"></i>
+        </button>
             <div class="logo">
                 <h1>
                     <i class="fas fa-crow"></i>
