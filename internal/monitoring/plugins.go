@@ -10,7 +10,7 @@ import (
     "strings"
     "time"
 
-    "internal/database"
+    "raven2/internal/database"
 )
 
 // PingPlugin implements basic ping checks

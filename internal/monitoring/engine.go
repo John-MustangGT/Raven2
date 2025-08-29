@@ -7,9 +7,9 @@ import (
     "time"
 
     "github.com/sirupsen/logrus"
-    "internal/config"
-    "internal/database"
-    "internal/metrics"
+    "raven2/internal/config"
+    "raven2/internal/database"
+    "raven2/internal/metrics"
 )
 
 type Engine struct {

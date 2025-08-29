@@ -10,11 +10,11 @@ import (
     "time"
 
     "github.com/sirupsen/logrus"
-    "internal/config"
-    "internal/database"
-    "internal/metrics"
-    "internal/monitoring"
-    "internal/web"
+    "raven2/internal/config"
+    "raven2/internal/database"
+    "raven2/internal/metrics"
+    "raven2/internal/monitoring"
+    "raven2/internal/web"
 )
 
 func main() {
