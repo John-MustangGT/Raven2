@@ -66,7 +66,6 @@
             .app {
                 grid-template-columns: 1fr;
             }
-            
             .app.sidebar-collapsed {
                 grid-template-columns: 1fr;
             }
@@ -93,10 +92,15 @@
                 width: 280px;
                 transform: translateX(-100%);
                 z-index: 200;
+                grid-column: 1;
             }
             
             .sidebar.mobile-open {
                 transform: translateX(0);
+            }
+
+            .main-content {
+                grid-column: 1;
             }
         }
 
