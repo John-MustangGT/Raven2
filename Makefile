@@ -118,7 +118,7 @@ deb: build discover
 	@chmod 755 $(DEB_DIR)/DEBIAN/postrm
 
 	# Copy systemd service
-	@cp debian/etc/systemd/system/raven.service $(DEB_DIR)/etc/systemd/system/
+	@cp config/raven.service $(DEB_DIR)/etc/systemd/system/
 
 	# Create default config
 	@cp debian/etc/raven/config.yaml $(DEB_DIR)/etc/raven/
