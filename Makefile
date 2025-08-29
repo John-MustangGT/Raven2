@@ -84,6 +84,7 @@ setup-dev:
 	go mod download
 	@echo "Development environment ready!"
 
+
 # Build Debian package
 .PHONY: deb
 deb: build discover
@@ -122,11 +123,33 @@ deb: build discover
 	# Create default config
 	@cp debian/etc/raven/config.yaml $(DEB_DIR)/etc/raven/
 
-	# Create documentation
-	@echo "Raven Network Monitoring System v$(VERSION)" > $(DEB_DIR)/usr/share/doc/raven/README
-	@echo "" >> $(DEB_DIR)/usr/share/doc/raven/README
-	@echo "See /etc/raven/config.yaml for configuration options." >> $(DEB_DIR)/usr/share/doc/raven/README
-	@echo "Use 'systemctl start raven' to start the service." >> $(DEB_DIR)/usr/share/doc/raven/README
+	# Copy documentation files
+	@mkdir -p $(DEB_DIR)/usr/share/doc/raven/examples
+	@cp README.md $(DEB_DIR)/usr/share/doc/raven/
+	@cp docs/Configuration.md $(DEB_DIR)/usr/share/doc/raven/
+	@cp config/alert-rules.yaml $(DEB_DIR)/usr/share/doc/raven/examples/
+	@cp config/prometheus.yml $(DEB_DIR)/usr/share/doc/raven/examples/
+	
+	# Create installation summary
+	@echo "Raven Network Monitoring System v$(VERSION)" > $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "=========================================" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "Installation Summary:" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Configuration:     /etc/raven/config.yaml" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Data Directory:    /var/lib/raven/" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Web Interface:     http://localhost:8000" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Service Control:   systemctl start/stop/status raven" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Logs:              journalctl -u raven -f" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "Quick Start:" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  1. sudo raven-discover -network 192.168.1.0/24 -output /tmp/config.yaml" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  2. sudo cp /tmp/config.yaml /etc/raven/config.yaml" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  3. sudo systemctl start raven" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "Documentation:" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Main README:       /usr/share/doc/raven/README.md" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Configuration:     /usr/share/doc/raven/Configuration.md" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "  Examples:          /usr/share/doc/raven/examples/" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
 
 	# Build the package
 	@dpkg-deb --build $(DEB_DIR)
