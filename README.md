@@ -223,7 +223,7 @@ Integration with Home Assistant for smart home monitoring (coming soon).
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+See the [LICENSE](LICENSE) file for details.
 
 ## Support
 
