@@ -9,7 +9,7 @@ import (
     "github.com/gin-gonic/gin"
     "github.com/google/uuid"
     "github.com/sirupsen/logrus"
-    "github.com/John-MustangGT/raven/internal/database"
+    "internal/database"
 )
 
 type HostRequest struct {

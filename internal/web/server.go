@@ -9,10 +9,10 @@ import (
     "github.com/gin-gonic/gin"
     "github.com/prometheus/client_golang/prometheus/promhttp"
     "github.com/sirupsen/logrus"
-    "github.com/John-MustangGT/raven/internal/config"
-    "github.com/John-MustangGT/raven/internal/database"
-    "github.com/John-MustangGT/raven/internal/metrics"
-    "github.com/John-MustangGT/raven/internal/monitoring"
+    "internal/config"
+    "internal/database"
+    "internal/metrics"
+    "internal/monitoring"
 )
 
 type Server struct {
