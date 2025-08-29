@@ -400,13 +400,45 @@ func (s *Server) webDiagnostics(c *gin.Context) {
     c.JSON(http.StatusOK, diagnostics)
 }
 
-// Update setupRoutes to include the new diagnostic endpoint
+// Update the setupRoutes function in internal/web/server.go
 func (s *Server) setupRoutes() {
-    // Static files - only enable if directory exists
-    if _, err := os.Stat("./web/static"); err == nil {
-        s.router.Static("/static", "./web/static")
-    } else if _, err := os.Stat("/usr/lib/raven/web/static"); err == nil {
-        s.router.Static("/static", "/usr/lib/raven/web/static")
+    // Configure static file serving based on config
+    if s.config.Web.ServeStatic {
+        var staticDir string
+        
+        // Determine static directory
+        if s.config.Web.AssetsDir != "" {
+            // Use configured assets directory
+            if filepath.IsAbs(s.config.Web.StaticDir) {
+                staticDir = s.config.Web.StaticDir
+            } else {
+                staticDir = filepath.Join(s.config.Web.AssetsDir, s.config.Web.StaticDir)
+            }
+        } else {
+            // Auto-detect static directory
+            possibleStaticDirs := []string{
+                "./web/static",
+                "/usr/lib/raven/web/static",
+                "/opt/raven/web/static",
+            }
+            
+            for _, dir := range possibleStaticDirs {
+                if _, err := os.Stat(dir); err == nil {
+                    staticDir = dir
+                    break
+                }
+            }
+        }
+        
+        // Enable static serving if directory exists
+        if staticDir != "" {
+            if _, err := os.Stat(staticDir); err == nil {
+                s.router.Static("/static", staticDir)
+                logrus.WithField("static_dir", staticDir).Debug("Enabled static file serving")
+            } else {
+                logrus.WithField("static_dir", staticDir).Warn("Configured static directory not found")
+            }
+        }
     }
 
     // Main page
@@ -415,24 +447,32 @@ func (s *Server) setupRoutes() {
     // API routes
     api := s.router.Group("/api")
     {
+        // Host endpoints
         api.GET("/hosts", s.getHosts)
         api.GET("/hosts/:id", s.getHost)
         api.POST("/hosts", s.createHost)
         api.PUT("/hosts/:id", s.updateHost)
         api.DELETE("/hosts/:id", s.deleteHost)
 
+        // Check endpoints (now complete)
         api.GET("/checks", s.getChecks)
         api.GET("/checks/:id", s.getCheck)
         api.POST("/checks", s.createCheck)
-        api.PUT("/checks/:id", s.updateCheck)
-        api.DELETE("/checks/:id", s.deleteCheck)
+        api.PUT("/checks/:id", s.updateCheck)     // Now implemented
+        api.DELETE("/checks/:id", s.deleteCheck)  // Now implemented
 
+        // Status endpoints
         api.GET("/status", s.getStatus)
         api.GET("/status/history/:host/:check", s.getStatusHistory)
 
+        // Alert endpoints (new)
+        api.GET("/alerts", s.getAlerts)           // New endpoint
+        api.GET("/alerts/summary", s.getAlertsSummary) // New endpoint
+
+        // System endpoints
         api.GET("/stats", s.getStats)
         api.GET("/health", s.healthCheck)
-        api.GET("/diagnostics/web", s.webDiagnostics) // New diagnostic endpoint
+        api.GET("/diagnostics/web", s.webDiagnostics)
     }
 
     // WebSocket endpoint
@@ -504,33 +544,6 @@ func (s *Server) getCheck(c *gin.Context) {
     }
 
     c.JSON(http.StatusOK, gin.H{"data": check})
-}
-
-func (s *Server) createCheck(c *gin.Context) {
-    var req database.Check
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
-
-    if err := s.store.CreateCheck(c.Request.Context(), &req); err != nil {
-        logrus.WithError(err).Error("Failed to create check")
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create check"})
-        return
-    }
-
-    s.engine.RefreshConfig()
-    c.JSON(http.StatusCreated, gin.H{"data": req})
-}
-
-func (s *Server) updateCheck(c *gin.Context) {
-    // Implementation similar to updateHost
-    c.JSON(http.StatusNotImplemented, gin.H{"error": "Not implemented yet"})
-}
-
-func (s *Server) deleteCheck(c *gin.Context) {
-    // Implementation similar to deleteHost
-    c.JSON(http.StatusNotImplemented, gin.H{"error": "Not implemented yet"})
 }
 
 func (s *Server) getStatusHistory(c *gin.Context) {

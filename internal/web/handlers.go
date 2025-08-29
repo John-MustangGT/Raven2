@@ -31,6 +31,29 @@ type HostResponse struct {
     CheckCount int       `json:"check_count"`
 }
 
+// CheckRequest represents the request body for creating/updating checks
+type CheckRequest struct {
+    Name      string                   `json:"name" binding:"required"`
+    Type      string                   `json:"type" binding:"required"`
+    Hosts     []string                 `json:"hosts" binding:"required"`
+    Interval  map[string]string        `json:"interval"`
+    Threshold int                      `json:"threshold"`
+    Timeout   string                   `json:"timeout"`
+    Enabled   bool                     `json:"enabled"`
+    Options   map[string]interface{}   `json:"options"`
+}
+
+// Alert represents an alert derived from status data
+type Alert struct {
+    ID        string    `json:"id"`
+    Timestamp time.Time `json:"timestamp"`
+    Severity  string    `json:"severity"`
+    Host      string    `json:"host"`
+    Check     string    `json:"check"`
+    Message   string    `json:"message"`
+    Duration  int64     `json:"duration"` // milliseconds
+}
+
 // GET /api/hosts
 func (s *Server) getHosts(c *gin.Context) {
     group := c.Query("group")
@@ -245,6 +268,254 @@ func (s *Server) getHostStatus(ctx context.Context, hostID string) string {
     }
 
     switch statuses[0].ExitCode {
+    case 0:
+        return "ok"
+    case 1:
+        return "warning"
+    case 2:
+        return "critical"
+    default:
+        return "unknown"
+    }
+}
+
+// PUT /api/checks/:id - Update existing check
+func (s *Server) updateCheck(c *gin.Context) {
+    id := c.Param("id")
+    
+    var req CheckRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Get existing check
+    check, err := s.store.GetCheck(c.Request.Context(), id)
+    if err != nil {
+        if err.Error() == "check not found" {
+            c.JSON(http.StatusNotFound, gin.H{"error": "Check not found"})
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get check"})
+        return
+    }
+
+    // Parse interval durations
+    intervalDurations := make(map[string]time.Duration)
+    for state, intervalStr := range req.Interval {
+        if duration, err := time.ParseDuration(intervalStr); err == nil {
+            intervalDurations[state] = duration
+        } else {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interval format for " + state + ": " + intervalStr})
+            return
+        }
+    }
+
+    // Parse timeout
+    var timeout time.Duration
+    if req.Timeout != "" {
+        if t, err := time.ParseDuration(req.Timeout); err == nil {
+            timeout = t
+        } else {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid timeout format: " + req.Timeout})
+            return
+        }
+    }
+
+    // Update check fields
+    check.Name = req.Name
+    check.Type = req.Type
+    check.Hosts = req.Hosts
+    check.Interval = intervalDurations
+    check.Threshold = req.Threshold
+    check.Timeout = timeout
+    check.Enabled = req.Enabled
+    check.Options = req.Options
+    check.UpdatedAt = time.Now()
+
+    if err := s.store.UpdateCheck(c.Request.Context(), check); err != nil {
+        logrus.WithError(err).Error("Failed to update check")
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update check"})
+        return
+    }
+
+    // Notify monitoring engine of check change
+    s.engine.RefreshConfig()
+
+    c.JSON(http.StatusOK, gin.H{"data": check})
+}
+
+// DELETE /api/checks/:id - Delete existing check
+func (s *Server) deleteCheck(c *gin.Context) {
+    id := c.Param("id")
+    
+    // Verify check exists
+    _, err := s.store.GetCheck(c.Request.Context(), id)
+    if err != nil {
+        if err.Error() == "check not found" {
+            c.JSON(http.StatusNotFound, gin.H{"error": "Check not found"})
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get check"})
+        return
+    }
+
+    if err := s.store.DeleteCheck(c.Request.Context(), id); err != nil {
+        logrus.WithError(err).Error("Failed to delete check")
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete check"})
+        return
+    }
+
+    // Notify monitoring engine
+    s.engine.RefreshConfig()
+
+    c.JSON(http.StatusOK, gin.H{"message": "Check deleted successfully"})
+}
+
+// GET /api/alerts - Get current alerts
+func (s *Server) getAlerts(c *gin.Context) {
+    limitStr := c.DefaultQuery("limit", "100")
+    limit, _ := strconv.Atoi(limitStr)
+    
+    severityFilter := c.Query("severity") // optional: critical, warning, unknown
+
+    // Get recent status entries that indicate problems
+    statuses, err := s.store.GetStatus(c.Request.Context(), database.StatusFilters{
+        Limit: limit,
+    })
+    if err != nil {
+        logrus.WithError(err).Error("Failed to get status for alerts")
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get alerts"})
+        return
+    }
+
+    // Convert problematic statuses to alerts
+    var alerts []Alert
+    now := time.Now()
+    
+    for _, status := range statuses {
+        if status.ExitCode == 0 {
+            continue // Skip OK statuses
+        }
+
+        severity := getStatusName(status.ExitCode)
+        
+        // Apply severity filter if specified
+        if severityFilter != "" && severity != severityFilter {
+            continue
+        }
+
+        alert := Alert{
+            ID:        status.ID,
+            Timestamp: status.Timestamp,
+            Severity:  severity,
+            Host:      status.HostID,
+            Check:     status.CheckID,
+            Message:   status.Output,
+            Duration:  now.Sub(status.Timestamp).Milliseconds(),
+        }
+        
+        alerts = append(alerts, alert)
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "data":  alerts,
+        "count": len(alerts),
+    })
+}
+
+// GET /api/alerts/summary - Get alert summary statistics
+func (s *Server) getAlertsSummary(c *gin.Context) {
+    statuses, err := s.store.GetStatus(c.Request.Context(), database.StatusFilters{
+        Limit: 1000, // Get more data for accurate summary
+    })
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get alert summary"})
+        return
+    }
+
+    summary := map[string]int{
+        "active":   0,
+        "critical": 0,
+        "warning":  0,
+        "unknown":  0,
+    }
+
+    for _, status := range statuses {
+        if status.ExitCode > 0 {
+            summary["active"]++
+            
+            switch status.ExitCode {
+            case 1:
+                summary["warning"]++
+            case 2:
+                summary["critical"]++
+            case 3:
+                summary["unknown"]++
+            }
+        }
+    }
+
+    c.JSON(http.StatusOK, gin.H{"data": summary})
+}
+
+// POST /api/checks - Update the existing createCheck to handle intervals properly
+func (s *Server) createCheck(c *gin.Context) {
+    var req CheckRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Parse interval durations
+    intervalDurations := make(map[string]time.Duration)
+    for state, intervalStr := range req.Interval {
+        if duration, err := time.ParseDuration(intervalStr); err == nil {
+            intervalDurations[state] = duration
+        } else {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interval format for " + state + ": " + intervalStr})
+            return
+        }
+    }
+
+    // Parse timeout
+    var timeout time.Duration
+    if req.Timeout != "" {
+        if t, err := time.ParseDuration(req.Timeout); err == nil {
+            timeout = t
+        } else {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid timeout format: " + req.Timeout})
+            return
+        }
+    }
+
+    check := &database.Check{
+        ID:        uuid.New().String(),
+        Name:      req.Name,
+        Type:      req.Type,
+        Hosts:     req.Hosts,
+        Interval:  intervalDurations,
+        Threshold: req.Threshold,
+        Timeout:   timeout,
+        Enabled:   req.Enabled,
+        Options:   req.Options,
+        CreatedAt: time.Now(),
+        UpdatedAt: time.Now(),
+    }
+
+    if err := s.store.CreateCheck(c.Request.Context(), check); err != nil {
+        logrus.WithError(err).Error("Failed to create check")
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create check"})
+        return
+    }
+
+    s.engine.RefreshConfig()
+    c.JSON(http.StatusCreated, gin.H{"data": check})
+}
+
+// Helper function to convert exit codes to status names
+func getStatusName(exitCode int) string {
+    switch exitCode {
     case 0:
         return "ok"
     case 1:
