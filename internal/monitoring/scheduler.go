@@ -8,7 +8,7 @@ import (
     "time"
 
     "github.com/sirupsen/logrus"
-    "github.com/your-org/raven/internal/database"
+    "internal/database"
 )
 
 type Scheduler struct {
