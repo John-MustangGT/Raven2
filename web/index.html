@@ -927,7 +927,16 @@
                             <div class="spinner"></div>
                             Loading checks...
                         </div>
-                        <table v-else>
+                        
+                        <!-- Debug info - remove in production -->
+                        <div v-if="!loading && checks.length === 0" style="padding: 1rem; background: var(--light-bg); margin: 1rem; border-radius: 0.5rem;">
+                            <h4>Debug Info:</h4>
+                            <p>Checks array length: {{ checks.length }}</p>
+                            <p>Raw checks data: <pre style="font-size: 0.8rem;">{{ JSON.stringify(checks, null, 2).substring(0, 500) }}...</pre></p>
+                            <button @click="loadChecks()" class="btn btn-secondary btn-small">Reload Checks</button>
+                        </div>
+                        
+                        <table v-else-if="!loading">
                             <thead>
                                 <tr>
                                     <th>Name</th>
@@ -939,23 +948,23 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="(check, index) in filteredChecks" :key="`${check.id}-${index}`">
+                                <tr v-for="(check, index) in filteredChecks" :key="`${check.id || index}-${index}`">
                                     <td>
                                         <div>
-                                            <div style="font-weight: 500;">{{ check.name }}</div>
-                                            <div style="font-size: 0.875rem; color: var(--text-muted);">{{ check.id }}</div>
+                                            <div style="font-weight: 500;">{{ check.name || 'Unnamed Check' }}</div>
+                                            <div style="font-size: 0.875rem; color: var(--text-muted);">{{ check.id || 'No ID' }}</div>
                                         </div>
                                     </td>
                                     <td>
                                         <span class="status-badge" style="background: var(--light-bg); color: var(--text-primary);">
-                                            {{ check.type }}
+                                            {{ check.type || 'Unknown' }}
                                         </span>
                                     </td>
-                                    <td>{{ check.hosts ? check.hosts.length : 0 }} hosts</td>
+                                    <td>{{ (check.hosts && check.hosts.length) || 0 }} hosts</td>
                                     <td>
                                         <div style="font-size: 0.875rem;">
-                                            <div>OK: {{ check.interval?.ok || 'N/A' }}</div>
-                                            <div>Critical: {{ check.interval?.critical || 'N/A' }}</div>
+                                            <div>OK: {{ (check.interval && check.interval.ok) || 'N/A' }}</div>
+                                            <div>Critical: {{ (check.interval && check.interval.critical) || 'N/A' }}</div>
                                         </div>
                                     </td>
                                     <td>
@@ -1037,10 +1046,21 @@
                             <div class="spinner"></div>
                             Loading alerts...
                         </div>
-                        <div v-else-if="filteredAlerts.length === 0" class="loading">
+                        
+                        <!-- Debug info for alerts -->
+                        <div v-else-if="alerts.length === 0" class="loading">
+                            <div style="text-align: left; padding: 1rem; background: var(--light-bg); border-radius: 0.5rem; margin: 1rem;">
+                                <h4>Debug Info:</h4>
+                                <p>Alerts array length: {{ alerts.length }}</p>
+                                <p>Alert metrics: {{ JSON.stringify(alertMetrics) }}</p>
+                                <p>Alert filter: {{ alertFilter }}</p>
+                                <button @click="loadAlerts()" class="btn btn-secondary btn-small">Reload Alerts</button>
+                                <br><br>
+                            </div>
                             <i class="fas fa-check-circle" style="color: var(--success-color); font-size: 2rem; margin-right: 1rem;"></i>
                             No active alerts - all systems healthy!
                         </div>
+                        
                         <table v-else>
                             <thead>
                                 <tr>
@@ -1330,6 +1350,7 @@
                     recentActivity: [],
                     hostForm: this.getEmptyHostForm(),
                     checkForm: this.getEmptyCheckForm(),
+                    checkForm: this.getEmptyCheckForm(),
                     settings: {
                         darkMode: localStorage.getItem('theme') === 'dark',
                         refreshInterval: 30
@@ -1353,19 +1374,35 @@
                     };
                     return titles[this.currentView] || 'Dashboard';
                 },
-                filteredHosts() {
-                    return this.hosts.filter(host => {
-                        const matchesSearch = !this.searchQuery || 
-                            host.name.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
-                            (host.display_name && host.display_name.toLowerCase().includes(this.searchQuery.toLowerCase())) ||
-                            (host.ipv4 && host.ipv4.includes(this.searchQuery)) ||
-                            (host.hostname && host.hostname.toLowerCase().includes(this.searchQuery.toLowerCase()));
+                filteredChecks() {
+                    return this.checks.filter(check => {
+                        const matchesSearch = !this.searchChecksQuery || 
+                            check.name.toLowerCase().includes(this.searchChecksQuery.toLowerCase()) ||
+                            (check.id && check.id.toLowerCase().includes(this.searchChecksQuery.toLowerCase())) ||
+                            check.type.toLowerCase().includes(this.searchChecksQuery.toLowerCase());
                         
-                        const matchesGroup = !this.filterGroup || host.group === this.filterGroup;
+                        const matchesType = !this.filterCheckType || check.type === this.filterCheckType;
                         
-                        return matchesSearch && matchesGroup;
+                        return matchesSearch && matchesType;
                     });
                 },
+                checkTypes() {
+                    const types = [...new Set(this.checks.map(check => check.type))];
+                    return types.filter(Boolean).sort();
+                },
+                activeAlerts() {
+                    return this.alerts.filter(alert => alert.severity !== 'ok');
+                },
+                criticalAlerts() {
+                    return this.alerts.filter(alert => alert.severity === 'critical');
+                },
+                warningAlerts() {
+                    return this.alerts.filter(alert => alert.severity === 'warning');
+                },
+                groups() {
+                    const groups = [...new Set(this.hosts.map(host => host.group))];
+                    return groups.filter(Boolean).sort();
+                }
                 filteredChecks() {
                     return this.checks.filter(check => {
                         const matchesSearch = !this.searchChecksQuery || 
@@ -1397,10 +1434,19 @@
                     }
                     return this.alerts.filter(alert => alert.severity === this.alertFilter);
                 },
-                groups() {
-                    const groups = [...new Set(this.hosts.map(host => host.group))];
-                    return groups.filter(Boolean).sort();
-                }
+                filteredHosts() {
+                    return this.hosts.filter(host => {
+                        const matchesSearch = !this.searchQuery || 
+                            host.name.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+                            (host.display_name && host.display_name.toLowerCase().includes(this.searchQuery.toLowerCase())) ||
+                            (host.ipv4 && host.ipv4.includes(this.searchQuery)) ||
+                            (host.hostname && host.hostname.toLowerCase().includes(this.searchQuery.toLowerCase()));
+                        
+                        const matchesGroup = !this.filterGroup || host.group === this.filterGroup;
+                        
+                        return matchesSearch && matchesGroup;
+                    });
+                },
             },
             mounted() {
                 document.documentElement.setAttribute('data-theme', this.theme);
