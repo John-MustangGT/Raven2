@@ -28,4 +28,5 @@ version.go
 tmp/
 bin/
 srv/
+data/
 config.yaml
