@@ -80,8 +80,7 @@ func (s *Server) Stop(ctx context.Context) error {
 
 func (s *Server) setupRoutes() {
     // Static files
-    s.router.Static("/static", "./web/static")
-    s.router.LoadHTMLGlob("web/templates/*")
+    //s.router.Static("/static", "./web/static")
 
     // Main page
     s.router.GET("/", s.serveSPA)
