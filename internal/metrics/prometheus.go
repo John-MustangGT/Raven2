@@ -7,7 +7,7 @@ import (
 
     "github.com/prometheus/client_golang/prometheus"
     "github.com/prometheus/client_golang/prometheus/promauto"
-    "github.com/your-org/raven/internal/database"
+    "github.com/John-MustangGT/raven/internal/database"
 )
 
 // Prometheus metrics

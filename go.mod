@@ -1,5 +1,5 @@
 // go.mod
-module github.com/John-MustangGT/Raven2.git
+module github.com/John-MustangGT/raven2.git
 
 go 1.21
 
