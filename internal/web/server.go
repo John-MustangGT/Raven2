@@ -4,7 +4,10 @@ package web
 import (
     "context"
     "net/http"
+    "path/filepath"
     "time"
+    "os"
+    "strings"
 
     "github.com/gin-gonic/gin"
     "github.com/prometheus/client_golang/prometheus/promhttp"
@@ -78,9 +81,333 @@ func (s *Server) Stop(ctx context.Context) error {
     return nil
 }
 
+// Update the serveSPA function to use config
+func (s *Server) serveSPA(c *gin.Context) {
+    var indexPath string
+    var err error
+    
+    // If assets directory is configured, try that first
+    if s.config.Web.AssetsDir != "" {
+        configuredPath := filepath.Join(s.config.Web.AssetsDir, "index.html")
+        if _, err = os.Stat(configuredPath); err == nil {
+            indexPath = configuredPath
+        } else {
+            logrus.WithField("configured_path", configuredPath).Warn("Configured web assets directory not found, falling back to auto-detection")
+        }
+    }
+    
+    // If no configured path worked, try default locations
+    if indexPath == "" {
+        possiblePaths := []string{
+            "web/index.html",                    // Development path
+            "./web/index.html",                  // Alternative development path
+            "/usr/lib/raven/web/index.html",     // Production package path
+            "/opt/raven/web/index.html",         // Alternative production path
+        }
+        
+        // Find the first existing path
+        for _, path := range possiblePaths {
+            if _, err = os.Stat(path); err == nil {
+                indexPath = path
+                break
+            }
+        }
+    }
+    
+    if indexPath == "" {
+        logrus.WithError(err).Error("Web interface files not found")
+        s.serveErrorPage(c)
+        return
+    }
+    
+    // Log which path we're using (debug level)
+    logrus.WithField("path", indexPath).Debug("Serving web interface from")
+    
+    c.Header("Content-Type", "text/html")
+    c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+    c.Header("Pragma", "no-cache")
+    c.Header("Expires", "0")
+    
+    // Serve the file
+    c.File(indexPath)
+}
+
+// Extract error page to separate method
+func (s *Server) serveErrorPage(c *gin.Context) {
+    c.Header("Content-Type", "text/html")
+    c.String(http.StatusInternalServerError, `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Raven - Web Interface Not Found</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f5f5f5; }
+        .error-container { 
+            background: white; 
+            padding: 30px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 700px;
+        }
+        h1 { color: #e74c3c; }
+        .config-info { background: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3; margin: 20px 0; }
+        .paths { background: #f8f9fa; padding: 15px; border-left: 4px solid #e74c3c; margin: 20px 0; }
+        .solution { background: #e8f5e9; padding: 15px; border-left: 4px solid #4caf50; margin: 20px 0; }
+        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+        .config-example { background: #f8f9fa; padding: 10px; border-radius: 4px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h1>🐦 Raven Web Interface Not Found</h1>
+        <p>The Raven web interface files could not be located.</p>
+        
+        <div class="config-info">
+            <strong>Current Configuration:</strong><br>
+            Configured assets directory: <code>%s</code><br>
+            (Empty means auto-detect)
+        </div>
+        
+        <div class="paths">
+            <strong>Auto-detection searched paths:</strong><br>
+            • <code>web/index.html</code> (development)<br>
+            • <code>./web/index.html</code> (alternative development)<br>
+            • <code>/usr/lib/raven/web/index.html</code> (Debian package)<br>
+            • <code>/opt/raven/web/index.html</code> (alternative package)
+        </div>
+        
+        <div class="solution">
+            <strong>Solutions:</strong><br><br>
+            
+            <strong>1. Configure explicit path in config.yaml:</strong><br>
+            <div class="config-example">
+web:<br>
+&nbsp;&nbsp;assets_dir: "/usr/lib/raven/web"&nbsp;&nbsp;# For package install<br>
+&nbsp;&nbsp;assets_dir: "./web"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# For development<br>
+&nbsp;&nbsp;serve_static: true
+            </div>
+            
+            <strong>2. If running from source:</strong> Make sure <code>web/index.html</code> exists<br><br>
+            
+            <strong>3. If installed from package:</strong> Try reinstalling:<br>
+            <code>sudo dpkg -i --force-confask raven_*.deb</code><br><br>
+            
+            <strong>4. Check installation:</strong> <code>ls -la /usr/lib/raven/web/</code>
+        </div>
+        
+        <p><strong>API Status:</strong> ✅ The REST API is working</p>
+        <p><strong>Alternative access:</strong> You can use the API directly at <code>/api/</code> endpoints</p>
+        <p><strong>Diagnostics:</strong> Visit <code>/api/diagnostics/web</code> for detailed information</p>
+        
+        <hr>
+        <p><em>Raven v2.0 Network Monitoring</em></p>
+    </div>
+</body>
+</html>`, s.config.Web.AssetsDir)
+}
+
+// Update the healthCheck function in internal/web/server.go
+func (s *Server) healthCheck(c *gin.Context) {
+    health := gin.H{
+        "status":    "healthy",
+        "timestamp": time.Now(),
+        "version":   "2.0.0",
+        "services":  gin.H{},
+    }
+    
+    services := health["services"].(gin.H)
+    
+    // Check database connectivity
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    
+    if _, err := s.store.GetHosts(ctx, database.HostFilters{}); err != nil {
+        services["database"] = gin.H{
+            "status": "unhealthy",
+            "error":  err.Error(),
+        }
+        health["status"] = "degraded"
+    } else {
+        services["database"] = gin.H{"status": "healthy"}
+    }
+    
+    // Check web assets
+    webPaths := []string{
+        "web/index.html",
+        "./web/index.html", 
+        "/usr/lib/raven/web/index.html",
+        "/opt/raven/web/index.html",
+    }
+    
+    webAssetFound := false
+    var webPath string
+    for _, path := range webPaths {
+        if _, err := os.Stat(path); err == nil {
+            webAssetFound = true
+            webPath = path
+            break
+        }
+    }
+    
+    if webAssetFound {
+        services["web_interface"] = gin.H{
+            "status": "healthy",
+            "path":   webPath,
+        }
+    } else {
+        services["web_interface"] = gin.H{
+            "status": "unhealthy",
+            "error":  "Web interface files not found",
+            "searched_paths": webPaths,
+        }
+        health["status"] = "degraded"
+    }
+    
+    // Check WebSocket clients
+    services["websocket"] = gin.H{
+        "status":           "healthy", 
+        "active_clients":   len(s.wsClients),
+    }
+    
+    // Check monitoring engine
+    // Note: You might want to add a health check method to the engine
+    services["monitoring"] = gin.H{"status": "healthy"}
+    
+    // Set HTTP status based on overall health
+    httpStatus := http.StatusOK
+    if health["status"] == "degraded" {
+        httpStatus = http.StatusServiceUnavailable
+    }
+    
+    c.JSON(httpStatus, health)
+}
+
+// Update the webDiagnostics function to include config info
+func (s *Server) webDiagnostics(c *gin.Context) {
+    diagnostics := gin.H{
+        "timestamp": time.Now(),
+        "configuration": gin.H{
+            "assets_dir":    s.config.Web.AssetsDir,
+            "static_dir":    s.config.Web.StaticDir,
+            "serve_static":  s.config.Web.ServeStatic,
+        },
+        "web_asset_search": gin.H{},
+    }
+    
+    // Determine search paths based on configuration
+    var searchPaths []string
+    
+    if s.config.Web.AssetsDir != "" {
+        // If assets directory is configured, check that first
+        configuredPath := filepath.Join(s.config.Web.AssetsDir, "index.html")
+        searchPaths = append(searchPaths, configuredPath)
+    }
+    
+    // Add default search paths
+    defaultPaths := []string{
+        "web/index.html",
+        "./web/index.html",
+        "/usr/lib/raven/web/index.html", 
+        "/opt/raven/web/index.html",
+    }
+    searchPaths = append(searchPaths, defaultPaths...)
+    
+    pathResults := make([]gin.H, 0, len(searchPaths))
+    
+    for i, path := range searchPaths {
+        result := gin.H{
+            "path": path,
+            "priority": i + 1, // Show search order
+        }
+        
+        if i == 0 && s.config.Web.AssetsDir != "" {
+            result["source"] = "configured"
+        } else {
+            result["source"] = "default"
+        }
+        
+        if stat, err := os.Stat(path); err == nil {
+            result["exists"] = true
+            result["size"] = stat.Size()
+            result["modified"] = stat.ModTime()
+            result["readable"] = true
+            
+            // Try to read first few bytes to verify it's HTML
+            if file, err := os.Open(path); err == nil {
+                buffer := make([]byte, 200)
+                if n, err := file.Read(buffer); err == nil {
+                    content := string(buffer[:n])
+                    result["looks_like_html"] = strings.Contains(strings.ToLower(content), "<!doctype html") || 
+                                               strings.Contains(strings.ToLower(content), "<html")
+                    result["preview"] = content
+                }
+                file.Close()
+            }
+        } else {
+            result["exists"] = false
+            result["error"] = err.Error()
+        }
+        
+        pathResults = append(pathResults, result)
+    }
+    
+    diagnostics["web_asset_search"] = pathResults
+    
+    // Check current working directory
+    if cwd, err := os.Getwd(); err == nil {
+        diagnostics["working_directory"] = cwd
+    }
+    
+    // Check static directory if configured
+    if s.config.Web.ServeStatic {
+        staticDiagnostics := gin.H{}
+        
+        var staticDir string
+        if s.config.Web.AssetsDir != "" {
+            if filepath.IsAbs(s.config.Web.StaticDir) {
+                staticDir = s.config.Web.StaticDir
+            } else {
+                staticDir = filepath.Join(s.config.Web.AssetsDir, s.config.Web.StaticDir)
+            }
+        }
+        
+        if staticDir != "" {
+            staticDiagnostics["configured_path"] = staticDir
+            if stat, err := os.Stat(staticDir); err == nil {
+                staticDiagnostics["exists"] = true
+                staticDiagnostics["is_directory"] = stat.IsDir()
+                staticDiagnostics["modified"] = stat.ModTime()
+                
+                // List contents if it's a directory
+                if stat.IsDir() {
+                    if files, err := os.ReadDir(staticDir); err == nil {
+                        fileNames := make([]string, 0, len(files))
+                        for _, file := range files {
+                            fileNames = append(fileNames, file.Name())
+                        }
+                        staticDiagnostics["contents"] = fileNames
+                    }
+                }
+            } else {
+                staticDiagnostics["exists"] = false
+                staticDiagnostics["error"] = err.Error()
+            }
+        }
+        
+        diagnostics["static_directory"] = staticDiagnostics
+    }
+    
+    c.JSON(http.StatusOK, diagnostics)
+}
+
+// Update setupRoutes to include the new diagnostic endpoint
 func (s *Server) setupRoutes() {
-    // Static files
-    //s.router.Static("/static", "./web/static")
+    // Static files - only enable if directory exists
+    if _, err := os.Stat("./web/static"); err == nil {
+        s.router.Static("/static", "./web/static")
+    } else if _, err := os.Stat("/usr/lib/raven/web/static"); err == nil {
+        s.router.Static("/static", "/usr/lib/raven/web/static")
+    }
 
     // Main page
     s.router.GET("/", s.serveSPA)
@@ -105,6 +432,7 @@ func (s *Server) setupRoutes() {
 
         api.GET("/stats", s.getStats)
         api.GET("/health", s.healthCheck)
+        api.GET("/diagnostics/web", s.webDiagnostics) // New diagnostic endpoint
     }
 
     // WebSocket endpoint
@@ -114,21 +442,6 @@ func (s *Server) setupRoutes() {
     if s.config.Prometheus.Enabled {
         s.router.GET(s.config.Prometheus.MetricsPath, gin.WrapH(promhttp.Handler()))
     }
-}
-
-func (s *Server) serveSPA(c *gin.Context) {
-    c.Header("Content-Type", "text/html")
-    c.Status(http.StatusOK)
-    // Serve the modern UI we created
-    c.File("web/index.html")
-}
-
-func (s *Server) healthCheck(c *gin.Context) {
-    c.JSON(http.StatusOK, gin.H{
-        "status":    "healthy",
-        "timestamp": time.Now(),
-        "version":   "2.0.0",
-    })
 }
 
 func (s *Server) getStats(c *gin.Context) {

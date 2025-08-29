@@ -10,6 +10,7 @@ StartLimitBurst=3
 Type=exec
 User=raven
 Group=raven
+WorkingDirectory=/usr/lib/raven
 ExecStart=/usr/bin/raven -config /etc/raven/config.yaml
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure

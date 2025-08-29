@@ -8,11 +8,11 @@ GOMOD=$(GOCMD) mod
 GOFMT=$(GOCMD) fmt
 
 # Deb build info
-VERSION ?= 2.0.0
+RELEASE_VERSION ?= 2.0.0
 ARCH ?= amd64
 PACKAGE_NAME = raven
 BUILD_DIR = build
-DEB_DIR = $(BUILD_DIR)/$(PACKAGE_NAME)_$(VERSION)_$(ARCH)
+DEB_DIR = $(BUILD_DIR)/$(PACKAGE_NAME)_$(RELEASE_VERSION)_$(ARCH)
 
 
 # Makefile for building and deployment
@@ -47,8 +47,8 @@ clean: clean-discover clean-deb
 	rm -rf bin/ data/
 
 docker:
-	docker build -t raven:$(VERSION) .
-	docker tag raven:$(VERSION) raven:latest
+	docker build -t raven:$(RELEASE_VERSION) .
+	docker tag raven:$(RELEASE_VERSION) raven:latest
 
 deploy: docker
 	docker-compose up -d
@@ -88,7 +88,7 @@ setup-dev:
 # Build Debian package
 .PHONY: deb
 deb: build discover
-	@echo "Building Debian package v$(VERSION)..."
+	@echo "Building Debian package v$(RELEASE_VERSION)..."
 	@rm -rf $(BUILD_DIR)
 	@mkdir -p $(DEB_DIR)/DEBIAN
 	@mkdir -p $(DEB_DIR)/usr/bin
@@ -131,7 +131,7 @@ deb: build discover
 	@cp config/prometheus.yml $(DEB_DIR)/usr/share/doc/raven/examples/
 	
 	# Create installation summary
-	@echo "Raven Network Monitoring System v$(VERSION)" > $(DEB_DIR)/usr/share/doc/raven/INSTALL
+	@echo "Raven Network Monitoring System v$(RELEASE_VERSION)" > $(DEB_DIR)/usr/share/doc/raven/INSTALL
 	@echo "=========================================" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
 	@echo "" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL
 	@echo "Installation Summary:" >> $(DEB_DIR)/usr/share/doc/raven/INSTALL

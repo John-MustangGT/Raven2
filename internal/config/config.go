@@ -11,6 +11,7 @@ import (
 
 type Config struct {
     Server     ServerConfig     `yaml:"server"`
+    Web        WebConfig        `yaml:"web"`
     Database   DatabaseConfig   `yaml:"database"`
     Prometheus PrometheusConfig `yaml:"prometheus"`
     Monitoring MonitoringConfig `yaml:"monitoring"`
@@ -25,6 +26,12 @@ type ServerConfig struct {
     PluginDir    string        `yaml:"plugin_dir"`
     ReadTimeout  time.Duration `yaml:"read_timeout"`
     WriteTimeout time.Duration `yaml:"write_timeout"`
+}
+
+type WebConfig struct {
+    AssetsDir    string `yaml:"assets_dir"`
+    StaticDir    string `yaml:"static_dir"`
+    ServeStatic  bool   `yaml:"serve_static"`
 }
 
 type DatabaseConfig struct {
@@ -112,6 +119,14 @@ func setDefaults(cfg *Config) {
     if cfg.Database.Path == "" {
         cfg.Database.Path = "./data/raven.db"
     }
+    
+    // Web defaults
+    if cfg.Web.StaticDir == "" {
+        cfg.Web.StaticDir = "static"
+    }
+    // Note: AssetsDir defaults to empty (auto-detect)
+    // ServeStatic defaults to false (zero value)
+    
     if cfg.Prometheus.MetricsPath == "" {
         cfg.Prometheus.MetricsPath = "/metrics"
     }

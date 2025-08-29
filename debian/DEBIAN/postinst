@@ -24,6 +24,7 @@ case "$1" in
         # Set proper ownership and permissions
         chown -R raven:raven /var/lib/raven
         chown -R raven:raven /var/log/raven
+        chown -R raven:raven /usr/lib/raven
         chown root:raven /etc/raven/config.yaml
         chmod 640 /etc/raven/config.yaml
         chmod 755 /var/lib/raven
