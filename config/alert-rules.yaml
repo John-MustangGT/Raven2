@@ -1,0 +1,31 @@
+# alert_rules.yml - Prometheus alerting rules
+groups:
+- name: raven_alerts
+  rules:
+  - alert: HostDown
+    expr: raven_host_status > 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Host {{ $labels.host }} is down"
+      description: "Host {{ $labels.host }} in group {{ $labels.group }} has been down for more than 5 minutes."
+
+  - alert: HostWarning
+    expr: raven_host_status == 1
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Host {{ $labels.host }} is in warning state"
+      description: "Host {{ $labels.host }} in group {{ $labels.group }} has been in warning state for more than 2 minutes."
+
+  - alert: CheckFailureRate
+    expr: rate(raven_checks_total{status!="ok"}[5m]) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High check failure rate for {{ $labels.host }}"
+      description: "Host {{ $labels.host }} has a high check failure rate of {{ $value }} failures per second."
+

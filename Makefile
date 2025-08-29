@@ -1,42 +1,58 @@
-export VER=$(shell git tag | head -1)
-export ROOTDIR=$(PWD)
-export INSTALLDIR=$(ROOTDIR)/srv
-export UTILDIR=$(ROOTDIR)/utils
-export BINDIR=$(INSTALLDIR)/bin
-export PLUGINDIR=$(BINDIR)/plugins
-export ETCDIR=$(INSTALLDIR)/etc
-export TMPLDIR=$(INSTALLDIR)/templates
+# Makefile for building and deployment
+.PHONY: build run test clean docker deploy
 
-GO := $(shell which go)
-ifneq ($(.SHELLSTATUS),0) 
-	$(error No go compiler in path)
-endif
-export GO
+VERSION := $(shell git describe --tags --always --dirty)
+BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+COMMIT := $(shell git rev-parse HEAD)
 
-all: $(BINDIR) $(PLUGINDIR) $(TMPLDIR) $(ETCDIR)
-	@echo Version- $(VER)
-	$(MAKE) -C src all
+LDFLAGS := -X main.Version=$(VERSION) \
+           -X main.BuildTime=$(BUILD_TIME) \
+           -X main.Commit=$(COMMIT)
 
-$(BINDIR):
-	mkdir -p $(BINDIR)
-$(ETCDIR):
-	mkdir -p $(ETCDIR)
-$(PLUGINDIR):
-	mkdir -p $(PLUGINDIR)
-$(TMPLDIR):
-	mkdir -p $(TMPLDIR)
+build:
+	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS)" -o bin/raven ./cmd/raven
 
-depend:
-	$(GO) get github.com/go-ini/ini
+run: build
+	./bin/raven -config config.yaml
+
+test:
+	go test -v ./...
 
 clean:
-	rm -rf $(INSTALLDIR)
-	$(MAKE) -C src clean
+	rm -rf bin/ data/
 
-tar: clean
-	-mkdir ../raven-$(VER)
-	rsync -av src Makefile COPYING README.md docs etc ../raven-$(VER)/
-	(cd ..; tar czf raven-$(VER).tar.gz raven-$(VER))
+docker:
+	docker build -t raven:$(VERSION) .
+	docker tag raven:$(VERSION) raven:latest
 
-dist-deb:
-	bzr dh-make raven $(VER) raven-$(VER).tar.gz 
+deploy: docker
+	docker-compose up -d
+
+dev:
+	go run -ldflags "$(LDFLAGS)" ./cmd/raven -config config.yaml
+
+install-deps:
+	go mod tidy
+	go mod download
+
+format:
+	go fmt ./...
+	go vet ./...
+
+lint:
+	golangci-lint run
+
+migrate:
+	@echo "Running database migrations..."
+	./bin/raven -config config.yaml -migrate
+
+backup:
+	@echo "Creating database backup..."
+	cp data/raven.db data/raven-backup-$(shell date +%Y%m%d-%H%M%S).db
+
+# Development setup
+setup-dev:
+	@echo "Setting up development environment..."
+	mkdir -p data plugins
+	go mod download
+	@echo "Development environment ready!"

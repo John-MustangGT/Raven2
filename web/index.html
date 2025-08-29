@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raven Network Monitoring</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #3b82f6;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --dark-bg: #1f2937;
+            --darker-bg: #111827;
+            --light-bg: #f9fafb;
+            --card-bg: #ffffff;
+            --text-primary: #111827;
+            --text-secondary: #6b7280;
+            --text-muted: #9ca3af;
+            --border-color: #e5e7eb;
+            --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        [data-theme="dark"] {
+            --card-bg: #374151;
+            --light-bg: #111827;
+            --text-primary: #f9fafb;
+            --text-secondary: #d1d5db;
+            --text-muted: #9ca3af;
+            --border-color: #4b5563;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--light-bg);
+            color: var(--text-primary);
+            line-height: 1.6;
+            transition: all 0.3s ease;
+        }
+
+        .app {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            background: var(--card-bg);
+            border-right: 1px solid var(--border-color);
+            padding: 2rem 0;
+            box-shadow: var(--shadow);
+            overflow-y: auto;
+        }
+
+        .logo {
+            padding: 0 2rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 2rem;
+        }
+
+        .logo h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .nav-menu {
+            list-style: none;
+            padding: 0 1rem;
+        }
+
+        .nav-item {
+            margin-bottom: 0.5rem;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            border-radius: 0.5rem;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .main-content {
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 2rem;
+            gap: 1rem;
+        }
+
+        .page-title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-left: auto;
+        }
+
+        .theme-toggle {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: var(--card-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-danger {
+            background: var(--danger-color);
+            color: white;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .metric-card {
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 1rem;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .metric-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .metric-title {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .metric-icon {
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            font-size: 1.25rem;
+        }
+
+        .metric-icon.ok { background: #dcfce7; color: var(--success-color); }
+        .metric-icon.warning { background: #fef3c7; color: var(--warning-color); }
+        .metric-icon.critical { background: #fee2e2; color: var(--danger-color); }
+        .metric-icon.unknown { background: #f3f4f6; color: var(--text-muted); }
+
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .metric-change {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        .data-table {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border-color);
+        }
+
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .table-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .search-box {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .search-input {
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            background: var(--light-bg);
+            color: var(--text-primary);
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .table-content {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: var(--light-bg);
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+        }
+
+        tbody tr {
+            transition: background-color 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background: var(--light-bg);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .status-ok {
+            background: #dcfce7;
+            color: var(--success-color);
+        }
+
+        .status-warning {
+            background: #fef3c7;
+            color: var(--warning-color);
+        }
+
+        .status-critical {
+            background: #fee2e2;
+            color: var(--danger-color);
+        }
+
+        .status-unknown {
+            background: #f3f4f6;
+            color: var(--text-muted);
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-small {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.875rem;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            padding: 2rem;
+            width: 100%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-20px);
+            transition: transform 0.3s ease;
+        }
+
+        .modal-overlay.active .modal {
+            transform: translateY(0);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: color 0.2s ease;
+        }
+
+        .close-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            background: var(--light-bg);
+            color: var(--text-primary);
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .form-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            margin-top: 2rem;
+        }
+
+        .notification {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            padding: 1rem 1.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            font-weight: 500;
+            z-index: 1100;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .notification.success {
+            background: var(--success-color);
+        }
+
+        .notification.error {
+            background: var(--danger-color);
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        .connection-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success-color);
+            animation: pulse 2s infinite;
+        }
+
+        .connection-indicator.disconnected {
+            background: var(--danger-color);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            color: var(--text-muted);
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-color);
+            border-top: 2px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 0.5rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            .app {
+                grid-template-columns: 1fr;
+            }
+            
+            .sidebar {
+                position: fixed;
+                left: -280px;
+                top: 0;
+                height: 100vh;
+                z-index: 100;
+                transition: left 0.3s ease;
+            }
+            
+            .sidebar.open {
+                left: 0;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .header-actions {
+                margin-left: 0;
+                width: 100%;
+                justify-content: flex-end;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app" :data-theme="theme">
+        <!-- Sidebar -->
+        <div class="sidebar" :class="{ open: sidebarOpen }">
+            <div class="logo">
+                <h1>
+                    <i class="fas fa-crow"></i>
+                    Raven
+                </h1>
+            </div>
+            <ul class="nav-menu">
+                <li class="nav-item">
+                    <a class="nav-link" :class="{ active: currentView === 'dashboard' }" @click="setView('dashboard')">
+                        <i class="fas fa-tachometer-alt"></i>
+                        Dashboard
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" :class="{ active: currentView === 'hosts' }" @click="setView('hosts')">
+                        <i class="fas fa-server"></i>
+                        Hosts
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" :class="{ active: currentView === 'checks' }" @click="setView('checks')">
+                        <i class="fas fa-check-circle"></i>
+                        Checks
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" :class="{ active: currentView === 'alerts' }" @click="setView('alerts')">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Alerts
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" :class="{ active: currentView === 'settings' }" @click="setView('settings')">
+                        <i class="fas fa-cog"></i>
+                        Settings
+                    </a>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="header">
+                <h1 class="page-title">{{ pageTitle }}</h1>
+                <div class="header-actions">
+                    <div class="connection-status">
+                        <div class="connection-indicator" :class="{ disconnected: !connected }"></div>
+                        {{ connected ? 'Connected' : 'Disconnected' }}
+                    </div>
+                    <button class="theme-toggle" @click="toggleTheme" :title="theme === 'dark' ? 'Light mode' : 'Dark mode'">
+                        <i :class="theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon'"></i>
+                    </button>
+                    <button class="btn btn-primary" v-if="currentView === 'hosts'" @click="openAddHostModal">
+                        <i class="fas fa-plus"></i>
+                        Add Host
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dashboard View -->
+            <div v-if="currentView === 'dashboard'">
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-header">
+                            <span class="metric-title">Healthy</span>
+                            <div class="metric-icon ok">
+                                <i class="fas fa-check"></i>
+                            </div>
+                        </div>
+                        <div class="metric-value">{{ stats.ok }}</div>
+                        <div class="metric-change">Hosts online</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-header">
+                            <span class="metric-title">Warning</span>
+                            <div class="metric-icon warning">
+                                <i class="fas fa-exclamation-triangle"></i>
+                            </div>
+                        </div>
+                        <div class="metric-value">{{ stats.warning }}</div>
+                        <div class="metric-change">Need attention</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-header">
+                            <span class="metric-title">Critical</span>
+                            <div class="metric-icon critical">
+                                <i class="fas fa-times-circle"></i>
+                            </div>
+                        </div>
+                        <div class="metric-value">{{ stats.critical }}</div>
+                        <div class="metric-change">Require action</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-header">
+                            <span class="metric-title">Unknown</span>
+                            <div class="metric-icon unknown">
+                                <i class="fas fa-question-circle"></i>
+                            </div>
+                        </div>
+                        <div class="metric-value">{{ stats.unknown }}</div>
+                        <div class="metric-change">Status unclear</div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity -->
+                <div class="data-table">
+                    <div class="table-header">
+                        <h3 class="table-title">Recent Activity</h3>
+                    </div>
+                    <div class="table-content">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Host</th>
+                                    <th>Check</th>
+                                    <th>Status</th>
+                                    <th>Message</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="activity in recentActivity" :key="activity.id">
+                                    <td>{{ formatTime(activity.timestamp) }}</td>
+                                    <td>{{ activity.host }}</td>
+                                    <td>{{ activity.check }}</td>
+                                    <td>
+                                        <span class="status-badge" :class="'status-' + activity.status">
+                                            <div class="status-indicator" :class="'status-' + activity.status"></div>
+                                            {{ activity.status }}
+                                        </span>
+                                    </td>
+                                    <td>{{ activity.message }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hosts View -->
+            <div v-if="currentView === 'hosts'">
+                <div class="data-table">
+                    <div class="table-header">
+                        <h3 class="table-title">Hosts ({{ hosts.length }})</h3>
+                        <div class="search-box">
+                            <input 
+                                v-model="searchQuery" 
+                                class="search-input" 
+                                placeholder="Search hosts..."
+                                type="text"
+                            >
+                            <select v-model="filterGroup" class="form-input" style="width: auto;">
+                                <option value="">All Groups</option>
+                                <option v-for="group in groups" :key="group" :value="group">{{ group }}</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-content">
+                        <div v-if="loading" class="loading">
+                            <div class="spinner"></div>
+                            Loading hosts...
+                        </div>
+                        <table v-else>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Address</th>
+                                    <th>Group</th>
+                                    <th>Status</th>
+                                    <th>Last Check</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="host in filteredHosts" :key="host.id">
+                                    <td>
+                                        <div>
+                                            <div style="font-weight: 500;">{{ host.display_name || host.name }}</div>
+                                            <div style="font-size: 0.875rem; color: var(--text-muted);">{{ host.name }}</div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div>
+                                            <div>{{ host.ipv4 || host.hostname || 'N/A' }}</div>
+                                            <div v-if="host.ipv4 && host.hostname" style="font-size: 0.875rem; color: var(--text-muted);">
+                                                {{ host.hostname }}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>{{ host.group }}</td>
+                                    <td>
+                                        <span class="status-badge" :class="'status-' + host.status">
+                                            <div class="status-indicator" :class="'status-' + host.status"></div>
+                                            {{ host.status }}
+                                        </span>
+                                    </td>
+                                    <td>{{ formatTime(host.last_check) }}</td>
+                                    <td>
+                                        <div class="actions">
+                                            <button class="btn btn-secondary btn-small" @click="editHost(host)">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="btn btn-danger btn-small" @click="deleteHost(host)">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Host Modal -->
+        <div class="modal-overlay" :class="{ active: showHostModal }" @click.self="closeHostModal">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 class="modal-title">{{ editingHost ? 'Edit Host' : 'Add Host' }}</h3>
+                    <button class="close-btn" @click="closeHostModal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form @submit.prevent="saveHost">
+                    <div class="form-group">
+                        <label class="form-label">Name *</label>
+                        <input 
+                            v-model="hostForm.name" 
+                            class="form-input" 
+                            type="text" 
+                            required
+                            placeholder="e.g., web-server-01"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Display Name</label>
+                        <input 
+                            v-model="hostForm.display_name" 
+                            class="form-input" 
+                            type="text"
+                            placeholder="e.g., Web Server 1"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">IP Address</label>
+                        <input 
+                            v-model="hostForm.ipv4" 
+                            class="form-input" 
+                            type="text"
+                            placeholder="e.g., 192.168.1.10"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Hostname</label>
+                        <input 
+                            v-model="hostForm.hostname" 
+                            class="form-input" 
+                            type="text"
+                            placeholder="e.g., web01.example.com"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Group</label>
+                        <input 
+                            v-model="hostForm.group" 
+                            class="form-input" 
+                            type="text"
+                            placeholder="e.g., servers"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label class="form-checkbox">
+                            <input v-model="hostForm.enabled" type="checkbox">
+                            <span>Enabled</span>
+                        </label>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" @click="closeHostModal">Cancel</button>
+                        <button type="submit" class="btn btn-primary" :disabled="saving">
+                            {{ saving ? 'Saving...' : 'Save' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Notification -->
+        <div v-if="notification.show" class="notification" :class="[notification.type, { show: notification.show }]">
+            {{ notification.message }}
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    currentView: 'dashboard',
+                    theme: localStorage.getItem('theme') || 'light',
+                    sidebarOpen: false,
+                    connected: false,
+                    loading: false,
+                    saving: false,
+                    searchQuery: '',
+                    filterGroup: '',
+                    showHostModal: false,
+                    editingHost: null,
+                    hosts: [],
+                    stats: {
+                        ok: 0,
+                        warning: 0,
+                        critical: 0,
+                        unknown: 0
+                    },
+                    recentActivity: [],
+                    hostForm: this.getEmptyHostForm(),
+                    notification: {
+                        show: false,
+                        type: '',
+                        message: ''
+                    },
+                    websocket: null
+                }
+            },
+            computed: {
+                pageTitle() {
+                    const titles = {
+                        dashboard: 'Dashboard',
+                        hosts: 'Hosts',
+                        checks: 'Checks',
+                        alerts: 'Alerts',
+                        settings: 'Settings'
+                    };
+                    return titles[this.currentView] || 'Dashboard';
+                },
+                filteredHosts() {
+                    return this.hosts.filter(host => {
+                        const matchesSearch = !this.searchQuery || 
+                            host.name.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+                            (host.display_name && host.display_name.toLowerCase().includes(this.searchQuery.toLowerCase())) ||
+                            (host.ipv4 && host.ipv4.includes(this.searchQuery)) ||
+                            (host.hostname && host.hostname.toLowerCase().includes(this.searchQuery.toLowerCase()));
+                        
+                        const matchesGroup = !this.filterGroup || host.group === this.filterGroup;
+                        
+                        return matchesSearch && matchesGroup;
+                    });
+                },
+                groups() {
+                    const groups = [...new Set(this.hosts.map(host => host.group))];
+                    return groups.filter(Boolean).sort();
+                }
+            },
+            mounted() {
+                document.documentElement.setAttribute('data-theme', this.theme);
+                this.loadHosts();
+                this.connectWebSocket();
+                this.loadStats();
+                
+                // Auto-refresh data
+                setInterval(() => {
+                    this.loadStats();
+                    if (this.currentView === 'hosts') {
+                        this.loadHosts();
+                    }
+                }, 30000);
+            },
+            methods: {
+                setView(view) {
+                    this.currentView = view;
+                    this.sidebarOpen = false;
+                    
+                    if (view === 'hosts') {
+                        this.loadHosts();
+                    }
+                },
+                toggleTheme() {
+                    this.theme = this.theme === 'light' ? 'dark' : 'light';
+                    localStorage.setItem('theme', this.theme);
+                    document.documentElement.setAttribute('data-theme', this.theme);
+                },
+                async loadHosts() {
+                    this.loading = true;
+                    try {
+                        const response = await axios.get('/api/hosts');
+                        this.hosts = response.data.data || [];
+                    } catch (error) {
+                        console.error('Failed to load hosts:', error);
+                        this.showNotification('error', 'Failed to load hosts');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                async loadStats() {
+                    try {
+                        const response = await axios.get('/api/status');
+                        const statuses = response.data.data || [];
+                        
+                        this.stats = {
+                            ok: statuses.filter(s => s.exit_code === 0).length,
+                            warning: statuses.filter(s => s.exit_code === 1).length,
+                            critical: statuses.filter(s => s.exit_code === 2).length,
+                            unknown: statuses.filter(s => s.exit_code === 3).length
+                        };
+
+                        // Update recent activity
+                        this.recentActivity = statuses
+                            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                            .slice(0, 10)
+                            .map(status => ({
+                                id: status.id,
+                                timestamp: status.timestamp,
+                                host: status.host_id,
+                                check: status.check_id,
+                                status: this.getStatusName(status.exit_code),
+                                message: status.output
+                            }));
+                    } catch (error) {
+                        console.error('Failed to load stats:', error);
+                    }
+                },
+                getStatusName(exitCode) {
+                    switch (exitCode) {
+                        case 0: return 'ok';
+                        case 1: return 'warning';
+                        case 2: return 'critical';
+                        default: return 'unknown';
+                    }
+                },
+                openAddHostModal() {
+                    this.editingHost = null;
+                    this.hostForm = this.getEmptyHostForm();
+                    this.showHostModal = true;
+                },
+                editHost(host) {
+                    this.editingHost = host;
+                    this.hostForm = {
+                        name: host.name,
+                        display_name: host.display_name || '',
+                        ipv4: host.ipv4 || '',
+                        hostname: host.hostname || '',
+                        group: host.group || '',
+                        enabled: host.enabled
+                    };
+                    this.showHostModal = true;
+                },
+                closeHostModal() {
+                    this.showHostModal = false;
+                    this.editingHost = null;
+                    this.hostForm = this.getEmptyHostForm();
+                },
+                async saveHost() {
+                    this.saving = true;
+                    try {
+                        const data = { ...this.hostForm };
+                        
+                        if (this.editingHost) {
+                            await axios.put(`/api/hosts/${this.editingHost.id}`, data);
+                            this.showNotification('success', 'Host updated successfully');
+                        } else {
+                            await axios.post('/api/hosts', data);
+                            this.showNotification('success', 'Host created successfully');
+                        }
+                        
+                        this.closeHostModal();
+                        this.loadHosts();
+                    } catch (error) {
+                        console.error('Failed to save host:', error);
+                        this.showNotification('error', 'Failed to save host');
+                    } finally {
+                        this.saving = false;
+                    }
+                },
+                async deleteHost(host) {
+                    if (!confirm(`Are you sure you want to delete ${host.name}?`)) {
+                        return;
+                    }
+                    
+                    try {
+                        await axios.delete(`/api/hosts/${host.id}`);
+                        this.showNotification('success', 'Host deleted successfully');
+                        this.loadHosts();
+                    } catch (error) {
+                        console.error('Failed to delete host:', error);
+                        this.showNotification('error', 'Failed to delete host');
+                    }
+                },
+                getEmptyHostForm() {
+                    return {
+                        name: '',
+                        display_name: '',
+                        ipv4: '',
+                        hostname: '',
+                        group: 'default',
+                        enabled: true
+                    };
+                },
+                showNotification(type, message) {
+                    this.notification = { show: true, type, message };
+                    setTimeout(() => {
+                        this.notification.show = false;
+                    }, 5000);
+                },
+                formatTime(timestamp) {
+                    if (!timestamp) return 'Never';
+                    return new Date(timestamp).toLocaleString();
+                },
+                connectWebSocket() {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = `${protocol}//${window.location.host}/ws`;
+                    
+                    this.websocket = new WebSocket(wsUrl);
+                    
+                    this.websocket.onopen = () => {
+                        this.connected = true;
+                        console.log('WebSocket connected');
+                    };
+                    
+                    this.websocket.onmessage = (event) => {
+                        const message = JSON.parse(event.data);
+                        if (message.type === 'status_update') {
+                            this.loadStats();
+                            if (this.currentView === 'hosts') {
+                                this.loadHosts();
+                            }
+                        }
+                    };
+                    
+                    this.websocket.onclose = () => {
+                        this.connected = false;
+                        console.log('WebSocket disconnected');
+                        // Reconnect after 5 seconds
+                        setTimeout(() => this.connectWebSocket(), 5000);
+                    };
+                    
+                    this.websocket.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.connected = false;
+                    };
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
