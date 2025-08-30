@@ -226,9 +226,9 @@ func mergePartialConfig(config *Config, partial *PartialConfig) {
         config.Hosts = append(config.Hosts, partial.Hosts...)
     }
 
-    // Merge checks (append to existing)
+    // Merge checks with smart host appending
     if len(partial.Checks) > 0 {
-        config.Checks = append(config.Checks, partial.Checks...)
+        mergeChecks(config, partial.Checks)
     }
 
     // For other sections, only override if they exist in the partial config
@@ -256,6 +256,65 @@ func mergePartialConfig(config *Config, partial *PartialConfig) {
 
     if partial.Logging != nil {
         mergeLoggingConfig(&config.Logging, partial.Logging)
+    }
+}
+
+// mergeChecks handles smart merging of check configurations
+// If a check with the same ID exists and the new check only has ID and hosts,
+// append the hosts to the existing check. Otherwise, add as a new check.
+func mergeChecks(config *Config, newChecks []CheckConfig) {
+    // Create a map of existing checks by ID for quick lookup
+    existingChecks := make(map[string]*CheckConfig)
+    for i := range config.Checks {
+        existingChecks[config.Checks[i].ID] = &config.Checks[i]
+    }
+
+    for _, newCheck := range newChecks {
+        if existingCheck, exists := existingChecks[newCheck.ID]; exists {
+            // Check if this is a partial definition (only ID and hosts specified)
+            if isPartialCheckDefinition(newCheck) {
+                // Append hosts to existing check
+                appendHostsToCheck(existingCheck, newCheck.Hosts)
+            } else {
+                // This is a full check definition, replace the existing one
+                *existingCheck = newCheck
+            }
+        } else {
+            // New check, add it to the config
+            config.Checks = append(config.Checks, newCheck)
+            existingChecks[newCheck.ID] = &config.Checks[len(config.Checks)-1]
+        }
+    }
+}
+
+// isPartialCheckDefinition determines if a check config is a partial definition
+// A partial definition only has ID and hosts specified, all other fields are zero values
+func isPartialCheckDefinition(check CheckConfig) bool {
+    // Check if only ID and hosts are specified (all other fields are zero values)
+    return check.ID != "" &&
+           len(check.Hosts) > 0 &&
+           check.Name == "" &&
+           check.Type == "" &&
+           len(check.Interval) == 0 &&
+           check.Threshold == 0 &&
+           check.Timeout == 0 &&
+           !check.Enabled && // false is zero value for bool
+           len(check.Options) == 0
+}
+
+// appendHostsToCheck appends new hosts to an existing check, avoiding duplicates
+func appendHostsToCheck(existingCheck *CheckConfig, newHosts []string) {
+    // Create a set of existing hosts for quick lookup
+    existingHosts := make(map[string]bool)
+    for _, host := range existingCheck.Hosts {
+        existingHosts[host] = true
+    }
+
+    // Append new hosts that don't already exist
+    for _, host := range newHosts {
+        if !existingHosts[host] {
+            existingCheck.Hosts = append(existingCheck.Hosts, host)
+        }
     }
 }
 
@@ -452,14 +511,8 @@ func validate(cfg *Config) error {
         hostIDs[host.ID] = true
     }
     
-    // Validate for duplicate check IDs
-    checkIDs := make(map[string]bool)
-    for _, check := range cfg.Checks {
-        if checkIDs[check.ID] {
-            return fmt.Errorf("duplicate check ID: %s", check.ID)
-        }
-        checkIDs[check.ID] = true
-    }
+    // Note: We don't validate for duplicate check IDs anymore since 
+    // the same check ID can appear multiple times for host list merging
     
     return nil
 }
