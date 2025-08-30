@@ -124,6 +124,9 @@ func (s *Server) setupRoutes() {
 
     // Main page
     s.router.GET("/", s.serveSPA)
+
+    // Serve CSS file
+    s.router.GET("/styles.css", s.serveCSS)
     
     // Favicon routes
     s.router.GET("/favicon.ico", s.serveFaviconICO)
@@ -222,6 +225,54 @@ func (s *Server) serveSPA(c *gin.Context) {
     
     // Serve the file
     c.File(indexPath)
+}
+
+func (s *Server) serveCSS(c *gin.Context) {
+    var cssPath string
+    var err error
+    
+    // If assets directory is configured, try that first
+    if s.config.Web.AssetsDir != "" {
+        configuredPath := filepath.Join(s.config.Web.AssetsDir, "styles.css")
+        if _, err = os.Stat(configuredPath); err == nil {
+            cssPath = configuredPath
+        } else {
+            logrus.WithField("configured_path", configuredPath).Warn("Configured styles.css not found, falling back to auto-detection")
+        }
+    }
+    
+    // If no configured path worked, try default locations
+    if cssPath == "" {
+        possiblePaths := []string{
+            "web/styles.css",                    // Development path
+            "./web/styles.css",                  // Alternative development path
+            "/usr/lib/raven/web/styles.css",     // Production package path
+            "/opt/raven/web/styles.css",         // Alternative production path
+        }
+        
+        // Find the first existing path
+        for _, path := range possiblePaths {
+            if _, err = os.Stat(path); err == nil {
+                cssPath = path
+                break
+            }
+        }
+    }
+    
+    if cssPath == "" {
+        logrus.WithError(err).Error("CSS file not found")
+        c.String(http.StatusNotFound, "CSS file not found")
+        return
+    }
+    
+    // Log which path we're using (debug level)
+    logrus.WithField("path", cssPath).Debug("Serving CSS from")
+    
+    c.Header("Content-Type", "text/css")
+    c.Header("Cache-Control", "public, max-age=3600") // Cache CSS for 1 hour
+    
+    // Serve the file
+    c.File(cssPath)
 }
 
 // Extract error page to separate method
@@ -432,6 +483,10 @@ func (s *Server) healthCheck(c *gin.Context) {
         "./web/index.html", 
         "/usr/lib/raven/web/index.html",
         "/opt/raven/web/index.html",
+        "web/styles.css",
+        "./web/styles.css", 
+        "/usr/lib/raven/web/styles.css",
+        "/opt/raven/web/styles.css",
     }
     
     webAssetFound := false
@@ -487,6 +542,66 @@ func (s *Server) webDiagnostics(c *gin.Context) {
         },
         "web_asset_search": gin.H{},
     }
+
+    // Check both HTML and CSS files
+    assetsToCheck := map[string]string{
+        "index.html": "Main HTML file",
+        "styles.css": "CSS stylesheet",
+    }
+    
+    assetResults := make(map[string]interface{})
+    
+    for filename, description := range assetsToCheck {
+        var searchPaths []string
+        
+        if s.config.Web.AssetsDir != "" {
+            configuredPath := filepath.Join(s.config.Web.AssetsDir, filename)
+            searchPaths = append(searchPaths, configuredPath)
+        }
+        
+        // Add default search paths
+        defaultPaths := []string{
+            "web/" + filename,
+            "./web/" + filename,
+            "/usr/lib/raven/web/" + filename,
+            "/opt/raven/web/" + filename,
+        }
+        searchPaths = append(searchPaths, defaultPaths...)
+        
+        pathResults := make([]gin.H, 0, len(searchPaths))
+        
+        for i, path := range searchPaths {
+            result := gin.H{
+                "path": path,
+                "priority": i + 1,
+            }
+            
+            if i == 0 && s.config.Web.AssetsDir != "" {
+                result["source"] = "configured"
+            } else {
+                result["source"] = "default"
+            }
+            
+            if stat, err := os.Stat(path); err == nil {
+                result["exists"] = true
+                result["size"] = stat.Size()
+                result["modified"] = stat.ModTime()
+                result["readable"] = true
+            } else {
+                result["exists"] = false
+                result["error"] = err.Error()
+            }
+            
+            pathResults = append(pathResults, result)
+        }
+        
+        assetResults[filename] = gin.H{
+            "description": description,
+            "paths": pathResults,
+        }
+    }
+    
+    diagnostics["web_assets"] = assetResults
     
     // Determine search paths based on configuration
     var searchPaths []string
