@@ -1,4 +1,4 @@
-// internal/config/config.go
+// internal/config/config.go - Enhanced with soft fail threshold support
 package config
 
 import (
@@ -20,13 +20,13 @@ type Config struct {
     Logging    LoggingConfig    `yaml:"logging"`
     Hosts      []HostConfig     `yaml:"hosts"`
     Checks     []CheckConfig    `yaml:"checks"`
-    Include    IncludeConfig    `yaml:"include"` // New include configuration
+    Include    IncludeConfig    `yaml:"include"`
 }
 
 type IncludeConfig struct {
-    Directory string   `yaml:"directory"` // Directory containing config files to include
-    Pattern   string   `yaml:"pattern"`   // File pattern to match (default: "*.yaml")
-    Enabled   bool     `yaml:"enabled"`   // Whether includes are enabled
+    Directory string   `yaml:"directory"`
+    Pattern   string   `yaml:"pattern"`
+    Enabled   bool     `yaml:"enabled"`
 }
 
 type ServerConfig struct {
@@ -41,9 +41,9 @@ type WebConfig struct {
     AssetsDir    string   `yaml:"assets_dir"`
     StaticDir    string   `yaml:"static_dir"`
     ServeStatic  bool     `yaml:"serve_static"`
-    Root         string   `yaml:"root"`         // Root file to serve at "/"
-    Files        []string `yaml:"files"`       // List of files to serve
-    HeaderLink   string   `yaml:"header_link"` // Link for the sidebar header/logo
+    Root         string   `yaml:"root"`
+    Files        []string `yaml:"files"`
+    HeaderLink   string   `yaml:"header_link"`
 }
 
 type DatabaseConfig struct {
@@ -62,10 +62,12 @@ type PrometheusConfig struct {
 }
 
 type MonitoringConfig struct {
-    DefaultInterval time.Duration `yaml:"default_interval"`
-    MaxRetries      int           `yaml:"max_retries"`
-    Timeout         time.Duration `yaml:"timeout"`
-    BatchSize       int           `yaml:"batch_size"`
+    DefaultInterval   time.Duration `yaml:"default_interval"`
+    MaxRetries        int           `yaml:"max_retries"`
+    Timeout           time.Duration `yaml:"timeout"`
+    BatchSize         int           `yaml:"batch_size"`
+    DefaultThreshold  int           `yaml:"default_threshold"`  // Default soft fail threshold
+    SoftFailEnabled   bool          `yaml:"soft_fail_enabled"`  // Global soft fail enable/disable
 }
 
 type LoggingConfig struct {
@@ -85,15 +87,16 @@ type HostConfig struct {
 }
 
 type CheckConfig struct {
-    ID        string                   `yaml:"id"`
-    Name      string                   `yaml:"name"`
-    Type      string                   `yaml:"type"`
-    Hosts     []string                 `yaml:"hosts"`
-    Interval  map[string]time.Duration `yaml:"interval"`
-    Threshold int                      `yaml:"threshold"`
-    Timeout   time.Duration            `yaml:"timeout"`
-    Enabled   bool                     `yaml:"enabled"`
-    Options   map[string]interface{}   `yaml:"options"`
+    ID              string                   `yaml:"id"`
+    Name            string                   `yaml:"name"`
+    Type            string                   `yaml:"type"`
+    Hosts           []string                 `yaml:"hosts"`
+    Interval        map[string]time.Duration `yaml:"interval"`
+    Threshold       int                      `yaml:"threshold"`         // Soft fail threshold (overrides default)
+    SoftFailEnabled *bool                    `yaml:"soft_fail_enabled"` // Per-check soft fail override (nil = use global)
+    Timeout         time.Duration            `yaml:"timeout"`
+    Enabled         bool                     `yaml:"enabled"`
+    Options         map[string]interface{}   `yaml:"options"`
 }
 
 // PartialConfig represents a partial configuration that can be merged
@@ -232,8 +235,6 @@ func mergePartialConfig(config *Config, partial *PartialConfig) {
     }
 
     // For other sections, only override if they exist in the partial config
-    // This allows include files to override main config settings
-
     if partial.Server != nil {
         mergeServerConfig(&config.Server, partial.Server)
     }
@@ -259,9 +260,6 @@ func mergePartialConfig(config *Config, partial *PartialConfig) {
     }
 }
 
-// mergeChecks handles smart merging of check configurations
-// If a check with the same ID exists and the new check only has ID and hosts,
-// append the hosts to the existing check. Otherwise, add as a new check.
 func mergeChecks(config *Config, newChecks []CheckConfig) {
     // Create a map of existing checks by ID for quick lookup
     existingChecks := make(map[string]*CheckConfig)
@@ -287,8 +285,6 @@ func mergeChecks(config *Config, newChecks []CheckConfig) {
     }
 }
 
-// isPartialCheckDefinition determines if a check config is a partial definition
-// A partial definition only has ID and hosts specified, all other fields are zero values
 func isPartialCheckDefinition(check CheckConfig) bool {
     // Check if only ID and hosts are specified (all other fields are zero values)
     return check.ID != "" &&
@@ -298,11 +294,11 @@ func isPartialCheckDefinition(check CheckConfig) bool {
            len(check.Interval) == 0 &&
            check.Threshold == 0 &&
            check.Timeout == 0 &&
-           !check.Enabled && // false is zero value for bool
-           len(check.Options) == 0
+           !check.Enabled &&
+           len(check.Options) == 0 &&
+           check.SoftFailEnabled == nil
 }
 
-// appendHostsToCheck appends new hosts to an existing check, avoiding duplicates
 func appendHostsToCheck(existingCheck *CheckConfig, newHosts []string) {
     // Create a set of existing hosts for quick lookup
     existingHosts := make(map[string]bool)
@@ -349,8 +345,6 @@ func mergeWebConfig(main *WebConfig, partial *WebConfig) {
     if partial.HeaderLink != "" {
         main.HeaderLink = partial.HeaderLink
     }
-    // ServeStatic is a boolean, so we need to check if it was explicitly set
-    // For simplicity, we'll always take the partial value
     main.ServeStatic = partial.ServeStatic
     
     if len(partial.Files) > 0 {
@@ -402,6 +396,11 @@ func mergeMonitoringConfig(main *MonitoringConfig, partial *MonitoringConfig) {
     if partial.BatchSize != 0 {
         main.BatchSize = partial.BatchSize
     }
+    if partial.DefaultThreshold != 0 {
+        main.DefaultThreshold = partial.DefaultThreshold
+    }
+    // For boolean, always take partial value
+    main.SoftFailEnabled = partial.SoftFailEnabled
 }
 
 func mergeLoggingConfig(main *LoggingConfig, partial *LoggingConfig) {
@@ -414,12 +413,15 @@ func mergeLoggingConfig(main *LoggingConfig, partial *LoggingConfig) {
 }
 
 func setDefaults(cfg *Config) {
+    // Server defaults
     if cfg.Server.Port == "" {
         cfg.Server.Port = ":8000"
     }
     if cfg.Server.Workers == 0 {
         cfg.Server.Workers = 3
     }
+    
+    // Database defaults
     if cfg.Database.Type == "" {
         cfg.Database.Type = "boltdb"
     }
@@ -443,9 +445,23 @@ func setDefaults(cfg *Config) {
         cfg.Include.Pattern = "*.yaml"
     }
     
+    // Monitoring defaults
+    if cfg.Monitoring.DefaultInterval == 0 {
+        cfg.Monitoring.DefaultInterval = 5 * time.Minute
+    }
+    if cfg.Monitoring.DefaultThreshold == 0 {
+        cfg.Monitoring.DefaultThreshold = 3 // Default to 3 consecutive failures
+    }
+    if cfg.Monitoring.Timeout == 0 {
+        cfg.Monitoring.Timeout = 30 * time.Second
+    }
+    
+    // Prometheus defaults
     if cfg.Prometheus.MetricsPath == "" {
         cfg.Prometheus.MetricsPath = "/metrics"
     }
+    
+    // Logging defaults
     if cfg.Logging.Level == "" {
         cfg.Logging.Level = "info"
     }
@@ -460,6 +476,14 @@ func validate(cfg *Config) error {
     }
     if cfg.Database.Type != "boltdb" {
         return fmt.Errorf("only boltdb is supported currently")
+    }
+    
+    // Validate monitoring configuration
+    if cfg.Monitoring.DefaultThreshold < 1 {
+        return fmt.Errorf("monitoring.default_threshold must be at least 1")
+    }
+    if cfg.Monitoring.DefaultInterval <= 0 {
+        return fmt.Errorf("monitoring.default_interval must be positive")
     }
     
     // Validate web configuration
@@ -511,10 +535,68 @@ func validate(cfg *Config) error {
         hostIDs[host.ID] = true
     }
     
-    // Note: We don't validate for duplicate check IDs anymore since 
-    // the same check ID can appear multiple times for host list merging
+    // Validate check configurations
+    for _, check := range cfg.Checks {
+        if check.Threshold < 0 {
+            return fmt.Errorf("check '%s' has invalid threshold: %d (must be >= 0)", check.ID, check.Threshold)
+        }
+        if check.Timeout <= 0 {
+            check.Timeout = cfg.Monitoring.Timeout // Use default if not specified
+        }
+        
+        // Validate that hosts exist
+        for _, hostID := range check.Hosts {
+            hostExists := false
+            for _, host := range cfg.Hosts {
+                if host.ID == hostID {
+                    hostExists = true
+                    break
+                }
+            }
+            if !hostExists {
+                return fmt.Errorf("check '%s' references non-existent host: %s", check.ID, hostID)
+            }
+        }
+        
+        // Validate intervals
+        if len(check.Interval) == 0 {
+            // Set default intervals if not specified
+            check.Interval = map[string]time.Duration{
+                "ok":       cfg.Monitoring.DefaultInterval,
+                "warning":  cfg.Monitoring.DefaultInterval / 2,
+                "critical": cfg.Monitoring.DefaultInterval / 4,
+                "unknown":  cfg.Monitoring.DefaultInterval,
+            }
+        }
+        
+        // Ensure all required intervals are present
+        requiredStates := []string{"ok", "warning", "critical", "unknown"}
+        for _, state := range requiredStates {
+            if _, exists := check.Interval[state]; !exists {
+                check.Interval[state] = cfg.Monitoring.DefaultInterval
+            }
+        }
+    }
     
     return nil
+}
+
+// GetEffectiveThreshold returns the effective threshold for a check
+// considering both check-level and global defaults
+func (c *CheckConfig) GetEffectiveThreshold(globalDefault int) int {
+    if c.Threshold > 0 {
+        return c.Threshold
+    }
+    return globalDefault
+}
+
+// IsSoftFailEnabled returns whether soft fail is enabled for this check
+// considering both check-level and global settings
+func (c *CheckConfig) IsSoftFailEnabled(globalEnabled bool) bool {
+    if c.SoftFailEnabled != nil {
+        return *c.SoftFailEnabled
+    }
+    return globalEnabled
 }
 
 // isValidURL checks if a string is a valid URL

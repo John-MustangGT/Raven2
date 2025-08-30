@@ -1,4 +1,4 @@
-// internal/monitoring/scheduler.go
+// internal/monitoring/scheduler.go - Enhanced with soft fail logic
 package monitoring
 
 import (
@@ -13,12 +13,13 @@ import (
 )
 
 type Scheduler struct {
-    engine      *Engine
-    jobQueue    chan *Job
-    resultQueue chan *JobResult
-    workers     []*Worker
-    running     bool
-    mu          sync.RWMutex
+    engine       *Engine
+    jobQueue     chan *Job
+    resultQueue  chan *JobResult
+    workers      []*Worker
+    running      bool
+    mu           sync.RWMutex
+    stateTracker *StateTracker // Track state changes for soft fails
 }
 
 type Job struct {
@@ -29,8 +30,8 @@ type Job struct {
     Check    *database.Check
     NextRun  time.Time
     Retries  int
-    State    int // Current state (0=OK, 1=Warning, 2=Critical, 3=Unknown)
-    StateAge int // How many checks have returned this state
+    State    int // Current reported state (0=OK, 1=Warning, 2=Critical, 3=Unknown)
+    StateAge int // How many consecutive checks have returned this state
 }
 
 type JobResult struct {
@@ -47,11 +48,34 @@ type Worker struct {
     quit    chan bool
 }
 
+// StateTracker manages soft fail logic for host/check combinations
+type StateTracker struct {
+    states map[string]*StateInfo
+    mu     sync.RWMutex
+}
+
+type StateInfo struct {
+    CurrentState     int       // The state we're reporting (what's stored in DB)
+    PendingState     int       // The state we're seeing in checks
+    ConsecutiveCount int       // How many consecutive times we've seen the pending state
+    LastStateChange  time.Time // When we last changed the current state
+    LastCheckTime    time.Time // When we last ran this check
+    SoftFailEnabled  bool      // Whether soft fail is enabled for this check
+    Threshold        int       // How many consecutive failures needed to change state
+}
+
 func NewScheduler(engine *Engine) *Scheduler {
     return &Scheduler{
-        engine:      engine,
-        jobQueue:    make(chan *Job, 1000),
-        resultQueue: make(chan *JobResult, 1000),
+        engine:       engine,
+        jobQueue:     make(chan *Job, 1000),
+        resultQueue:  make(chan *JobResult, 1000),
+        stateTracker: NewStateTracker(),
+    }
+}
+
+func NewStateTracker() *StateTracker {
+    return &StateTracker{
+        states: make(map[string]*StateInfo),
     }
 }
 
@@ -64,7 +88,12 @@ func (s *Scheduler) Start(ctx context.Context) error {
     }
 
     s.running = true
-    logrus.Info("Starting scheduler")
+    logrus.Info("Starting scheduler with soft fail support")
+
+    // Initialize state tracker from existing database states
+    if err := s.initializeStateTracker(); err != nil {
+        logrus.WithError(err).Warn("Failed to initialize state tracker from database")
+    }
 
     // Start workers
     workerCount := s.engine.config.Server.Workers
@@ -109,6 +138,67 @@ func (s *Scheduler) Stop() {
     }
 }
 
+func (s *Scheduler) initializeStateTracker() error {
+    checks, err := s.engine.store.GetChecks(context.Background())
+    if err != nil {
+        return fmt.Errorf("failed to get checks: %w", err)
+    }
+
+    for _, check := range checks {
+        for _, hostID := range check.Hosts {
+            key := fmt.Sprintf("%s:%s", hostID, check.ID)
+            
+            // Get current status from database
+            statuses, _ := s.engine.store.GetStatus(context.Background(), database.StatusFilters{
+                HostID:  hostID,
+                CheckID: check.ID,
+                Limit:   1,
+            })
+
+            threshold := s.getThreshold(&check)
+            
+            stateInfo := &StateInfo{
+                CurrentState:     3, // Unknown by default
+                PendingState:     3,
+                ConsecutiveCount: 0,
+                LastStateChange:  time.Now(),
+                LastCheckTime:    time.Now(),
+                SoftFailEnabled:  s.isSoftFailEnabled(&check),
+                Threshold:        threshold,
+            }
+
+            if len(statuses) > 0 {
+                stateInfo.CurrentState = statuses[0].ExitCode
+                stateInfo.PendingState = statuses[0].ExitCode
+                stateInfo.LastCheckTime = statuses[0].Timestamp
+            }
+
+            s.stateTracker.states[key] = stateInfo
+        }
+    }
+
+    logrus.WithField("tracked_states", len(s.stateTracker.states)).Info("Initialized state tracker")
+    return nil
+}
+
+func (s *Scheduler) getThreshold(check *database.Check) int {
+    // Check if threshold is specified in check configuration
+    if check.Threshold > 0 {
+        return check.Threshold
+    }
+    
+    // Fall back to default from monitoring config
+    return s.engine.config.Monitoring.DefaultThreshold
+}
+
+func (s *Scheduler) isSoftFailEnabled(check *database.Check) bool {
+    // For database checks, we don't have the SoftFailEnabled field from config
+    // So we use the threshold to determine if soft fail should be enabled
+    // and rely on the global setting
+    threshold := s.getThreshold(check)
+    return s.engine.config.Monitoring.SoftFailEnabled && threshold > 1
+}
+
 func (s *Scheduler) scheduleJobs(ctx context.Context) {
     ticker := time.NewTicker(30 * time.Second)
     defer ticker.Stop()
@@ -144,24 +234,33 @@ func (s *Scheduler) processSchedule() {
                 continue
             }
 
-            // Get current status to determine next run interval
-            statuses, err := s.engine.store.GetStatus(context.Background(), database.StatusFilters{
-                HostID:  host.ID,
-                CheckID: check.ID,
-                Limit:   1,
-            })
-
-            var currentState int = 3 // Unknown by default
-            var lastRun time.Time
+            key := fmt.Sprintf("%s:%s", hostID, check.ID)
             
-            if len(statuses) > 0 {
-                currentState = statuses[0].ExitCode
-                lastRun = statuses[0].Timestamp
+            s.stateTracker.mu.RLock()
+            stateInfo, exists := s.stateTracker.states[key]
+            s.stateTracker.mu.RUnlock()
+            
+            if !exists {
+                // Initialize state info for this host/check combination
+                threshold := s.getThreshold(&check)
+                stateInfo = &StateInfo{
+                    CurrentState:     3, // Unknown
+                    PendingState:     3,
+                    ConsecutiveCount: 0,
+                    LastStateChange:  now,
+                    LastCheckTime:    now,
+                    SoftFailEnabled:  s.isSoftFailEnabled(&check),
+                    Threshold:        threshold,
+                }
+                
+                s.stateTracker.mu.Lock()
+                s.stateTracker.states[key] = stateInfo
+                s.stateTracker.mu.Unlock()
             }
 
-            // Determine interval based on current state
+            // Determine interval based on current reported state (not pending state)
             var interval time.Duration
-            switch currentState {
+            switch stateInfo.CurrentState {
             case 0:
                 interval = check.Interval["ok"]
             case 1:
@@ -176,7 +275,16 @@ func (s *Scheduler) processSchedule() {
                 interval = s.engine.config.Monitoring.DefaultInterval
             }
 
-            nextRun := lastRun.Add(interval)
+            // If we're in a pending state change, check more frequently
+            if stateInfo.SoftFailEnabled && stateInfo.PendingState != stateInfo.CurrentState {
+                // Use a shorter interval for pending state verification
+                interval = interval / 3
+                if interval < 30*time.Second {
+                    interval = 30 * time.Second
+                }
+            }
+
+            nextRun := stateInfo.LastCheckTime.Add(interval)
             
             // Add some jitter to prevent thundering herd
             jitter := time.Duration(rand.Intn(int(interval.Seconds()*0.1))) * time.Second
@@ -184,13 +292,13 @@ func (s *Scheduler) processSchedule() {
 
             if nextRun.Before(now) {
                 job := &Job{
-                    ID:      host.ID + ":" + check.ID,
-                    HostID:  host.ID,
+                    ID:      key,
+                    HostID:  hostID,
                     CheckID: check.ID,
                     Host:    host,
                     Check:   &check,
                     NextRun: now,
-                    State:   currentState,
+                    State:   stateInfo.CurrentState,
                 }
 
                 select {
@@ -216,6 +324,7 @@ func (s *Scheduler) processResults() {
 
 func (s *Scheduler) handleResult(result *JobResult) {
     ctx := context.Background()
+    key := fmt.Sprintf("%s:%s", result.Job.HostID, result.Job.CheckID)
     
     if result.Error != nil {
         logrus.WithError(result.Error).
@@ -234,11 +343,19 @@ func (s *Scheduler) handleResult(result *JobResult) {
         }
     }
 
-    // Store result
+    // Update state tracker with new result
+    reportedState := s.updateStateTracker(key, result.Result.ExitCode)
+    
+    // Get state info for logging
+    s.stateTracker.mu.RLock()
+    stateInfo := s.stateTracker.states[key]
+    s.stateTracker.mu.RUnlock()
+
+    // Store result with the reported state (may be different from actual result due to soft fail)
     status := &database.Status{
         HostID:     result.Job.HostID,
         CheckID:    result.Job.CheckID,
-        ExitCode:   result.Result.ExitCode,
+        ExitCode:   reportedState,
         Output:     result.Result.Output,
         PerfData:   result.Result.PerfData,
         LongOutput: result.Result.LongOutput,
@@ -246,16 +363,25 @@ func (s *Scheduler) handleResult(result *JobResult) {
         Timestamp:  time.Now(),
     }
 
+    // If we're in soft fail mode and states don't match, add soft fail info to output
+    if stateInfo.SoftFailEnabled && result.Result.ExitCode != reportedState {
+        status.Output = fmt.Sprintf("SOFT FAIL (%d/%d) - %s", 
+            stateInfo.ConsecutiveCount, stateInfo.Threshold, result.Result.Output)
+        
+        status.LongOutput = fmt.Sprintf("Soft fail protection active. Consecutive non-OK results: %d/%d required.\nOriginal output: %s\nOriginal long output: %s",
+            stateInfo.ConsecutiveCount, stateInfo.Threshold, result.Result.Output, result.Result.LongOutput)
+    }
+
     if err := s.engine.store.UpdateStatus(ctx, status); err != nil {
         logrus.WithError(err).Error("Failed to store status")
         return
     }
 
-    // Record metrics
+    // Record metrics using the reported state
     s.engine.metrics.RecordCheckResult(
         result.Job.Host.Name,
         result.Job.Check.Type,
-        result.Result.ExitCode,
+        reportedState,
         result.Result.Duration,
     )
 
@@ -263,15 +389,103 @@ func (s *Scheduler) handleResult(result *JobResult) {
         result.Job.Host.Name,
         result.Job.Host.Group,
         result.Job.Check.Type,
-        result.Result.ExitCode,
+        reportedState,
     )
 
-    logrus.WithFields(logrus.Fields{
+    logFields := logrus.Fields{
         "host":     result.Job.Host.Name,
         "check":    result.Job.Check.Name,
         "exit":     result.Result.ExitCode,
+        "reported": reportedState,
         "duration": result.Result.Duration,
-    }).Debug("Check completed")
+    }
+
+    if stateInfo.SoftFailEnabled && result.Result.ExitCode != reportedState {
+        logFields["soft_fail"] = true
+        logFields["consecutive"] = stateInfo.ConsecutiveCount
+        logFields["threshold"] = stateInfo.Threshold
+    }
+
+    logrus.WithFields(logFields).Debug("Check completed")
+}
+
+func (s *Scheduler) updateStateTracker(key string, newExitCode int) int {
+    s.stateTracker.mu.Lock()
+    defer s.stateTracker.mu.Unlock()
+    
+    stateInfo, exists := s.stateTracker.states[key]
+    if !exists {
+        // This shouldn't happen, but handle it gracefully
+        stateInfo = &StateInfo{
+            CurrentState:     newExitCode,
+            PendingState:     newExitCode,
+            ConsecutiveCount: 1,
+            LastStateChange:  time.Now(),
+            LastCheckTime:    time.Now(),
+            SoftFailEnabled:  false,
+            Threshold:        1,
+        }
+        s.stateTracker.states[key] = stateInfo
+        return newExitCode
+    }
+
+    stateInfo.LastCheckTime = time.Now()
+    
+    // If soft fail is not enabled, just update and return the new state
+    if !stateInfo.SoftFailEnabled {
+        if stateInfo.CurrentState != newExitCode {
+            stateInfo.LastStateChange = time.Now()
+        }
+        stateInfo.CurrentState = newExitCode
+        stateInfo.PendingState = newExitCode
+        stateInfo.ConsecutiveCount = 1
+        return newExitCode
+    }
+
+    // Soft fail logic
+    if newExitCode == stateInfo.PendingState {
+        // Same state as before, increment counter
+        stateInfo.ConsecutiveCount++
+    } else {
+        // Different state, reset counter
+        stateInfo.PendingState = newExitCode
+        stateInfo.ConsecutiveCount = 1
+    }
+
+    // Check if we should change the reported state
+    shouldChangeState := false
+    
+    if newExitCode == 0 {
+        // Recovery to OK state - immediate transition
+        shouldChangeState = true
+    } else if stateInfo.CurrentState == 0 && newExitCode != 0 {
+        // Transitioning from OK to non-OK - apply soft fail logic
+        shouldChangeState = stateInfo.ConsecutiveCount >= stateInfo.Threshold
+    } else if stateInfo.CurrentState != 0 && newExitCode != 0 {
+        // Already in non-OK state, transitioning to different non-OK state
+        // Apply soft fail logic for state changes between non-OK states
+        shouldChangeState = stateInfo.ConsecutiveCount >= stateInfo.Threshold
+    } else {
+        // Other transitions (shouldn't happen with the above logic, but safety)
+        shouldChangeState = stateInfo.ConsecutiveCount >= stateInfo.Threshold
+    }
+
+    if shouldChangeState {
+        if stateInfo.CurrentState != newExitCode {
+            stateInfo.LastStateChange = time.Now()
+            logrus.WithFields(logrus.Fields{
+                "key":              key,
+                "old_state":        stateInfo.CurrentState,
+                "new_state":        newExitCode,
+                "consecutive_count": stateInfo.ConsecutiveCount,
+                "threshold":        stateInfo.Threshold,
+            }).Info("State change confirmed after soft fail period")
+        }
+        stateInfo.CurrentState = newExitCode
+        stateInfo.ConsecutiveCount = 1 // Reset counter after state change
+    }
+
+    return stateInfo.CurrentState
 }
 
 func (w *Worker) start() {
