@@ -34,6 +34,7 @@ type WebConfig struct {
     ServeStatic  bool     `yaml:"serve_static"`
     Root         string   `yaml:"root"`         // Root file to serve at "/"
     Files        []string `yaml:"files"`       // List of files to serve
+    HeaderLink   string   `yaml:"header_link"` // Link for the sidebar header/logo
 }
 
 type DatabaseConfig struct {
@@ -129,6 +130,9 @@ func setDefaults(cfg *Config) {
     if cfg.Web.Root == "" {
         cfg.Web.Root = "index.html"
     }
+    if cfg.Web.HeaderLink == "" {
+        cfg.Web.HeaderLink = "https://github.com/John-MustangGT/raven2"
+    }
     // Note: AssetsDir defaults to empty (auto-detect)
     // ServeStatic defaults to false (zero value)
     // Files defaults to empty slice (will use common defaults)
@@ -157,6 +161,13 @@ func validate(cfg *Config) error {
         return fmt.Errorf("web.root cannot be empty")
     }
     
+    // Validate header link if provided
+    if cfg.Web.HeaderLink != "" {
+        if !isValidURL(cfg.Web.HeaderLink) {
+            return fmt.Errorf("web.header_link must be a valid URL")
+        }
+    }
+    
     // If assets_dir is specified, validate it exists
     if cfg.Web.AssetsDir != "" {
         if _, err := os.Stat(cfg.Web.AssetsDir); err != nil {
@@ -176,6 +187,12 @@ func validate(cfg *Config) error {
     }
     
     return nil
+}
+
+// isValidURL checks if a string is a valid URL
+func isValidURL(str string) bool {
+    // Simple URL validation - starts with http:// or https://
+    return len(str) > 7 && (str[:7] == "http://" || (len(str) > 8 && str[:8] == "https://"))
 }
 
 // containsPathTraversal checks if a filename contains path traversal sequences

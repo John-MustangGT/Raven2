@@ -23,8 +23,10 @@
             </button>
             <div class="logo">
                 <h1>
-                    <i class="fas fa-crow"></i>
-                    <span v-if="!sidebarCollapsed">Raven</span>
+                    <a :href="webConfig.header_link" target="_blank" rel="noopener noreferrer" class="logo-link" :title="'Visit: ' + webConfig.header_link">
+                        <i class="fas fa-crow"></i>
+                        <span v-if="!sidebarCollapsed">Raven</span>
+                    </a>
                 </h1>
             </div>
             <ul class="nav-menu">
@@ -448,6 +450,9 @@
                                 <p style="color: var(--text-muted); font-size: 1.125rem;">
                                     Advanced network monitoring and alerting system
                                 </p>
+                                <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 1rem;">
+                                    Visit: <a :href="webConfig.header_link" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">{{ webConfig.header_link }}</a>
+                                </p>
                             </div>
 
                             <div class="metrics-grid" style="margin-bottom: 2rem;">
@@ -631,6 +636,8 @@
                                         {{ connected ? '✓ Connected' : '✗ Disconnected' }}
                                     </span>
                                 </div>
+                                <div><strong>Header Link:</strong> <a :href="webConfig.header_link" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">{{ webConfig.header_link }}</a></div>
+
                             </div>
                         </div>
 
@@ -870,6 +877,11 @@
                         build_flags: '',
                         modules: []
                     },
+                    webConfig: {
+                        header_link: 'https://github.com/John-MustangGT/raven2',  // Default fallback
+                        serve_static: false,
+                        root: 'index.html'
+                    },
                     hostForm: this.getEmptyHostForm(),
                     checkForm: this.getEmptyCheckForm(),
                     settings: {
@@ -948,6 +960,7 @@
             },
             mounted() {
                 document.documentElement.setAttribute('data-theme', this.theme);
+                this.loadWebConfig();  // Load web configuration first
                 this.loadHosts();
                 this.connectWebSocket();
                 this.loadStats();
@@ -976,6 +989,16 @@
                 });
             },
             methods: {
+                // Load web configuration from server
+                async loadWebConfig() {
+                    try {
+                        const response = await axios.get('/api/web-config');
+                        this.webConfig = response.data.data;
+                    } catch (error) {
+                        console.error('Failed to load web config:', error);
+                        // Keep default fallback values if config fails to load
+                    }
+                },
                 getEmptyHostForm() {
                     return {
                         name: '',
@@ -1165,6 +1188,7 @@
                 },
                 refreshData() {
                     this.loadStats();
+                    this.loadWebConfig(); // Also refresh web config
                     if (this.currentView === 'hosts') {
                         this.loadHosts();
                     } else if (this.currentView === 'checks') {

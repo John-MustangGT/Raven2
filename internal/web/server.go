@@ -156,6 +156,9 @@ func (s *Server) setupRoutes() {
         api.GET("/health", s.healthCheck)
         api.GET("/diagnostics/web", s.webDiagnostics)
         api.GET("/build-info", s.getBuildInfo)
+
+        // web-config endpoints
+        api.GET("/web-config", s.getWebConfig)
     }
 
     // WebSocket endpoint
@@ -507,6 +510,17 @@ func (s *Server) getCheck(c *gin.Context) {
     }
 
     c.JSON(http.StatusOK, gin.H{"data": check})
+}
+
+// getWebConfig returns web configuration for the frontend
+func (s *Server) getWebConfig(c *gin.Context) {
+    config := gin.H{
+        "header_link": s.config.Web.HeaderLink,
+        "serve_static": s.config.Web.ServeStatic,
+        "root": s.config.Web.Root,
+    }
+    
+    c.JSON(http.StatusOK, gin.H{"data": config})
 }
 
 func (s *Server) getStatusHistory(c *gin.Context) {

@@ -192,6 +192,69 @@ body {
     gap: 0.5rem;
 }
 
+/* Add these styles to your existing styles.css file */
+
+.logo-link {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--primary-color);
+    text-decoration: none;
+    transition: all 0.2s ease;
+    border-radius: 0.5rem;
+    padding: 0.25rem;
+}
+
+.logo-link:hover {
+    color: #2563eb;
+    background: rgba(59, 130, 246, 0.1);
+    transform: translateY(-1px);
+}
+
+.logo-link:active {
+    transform: translateY(0);
+}
+
+/* Ensure logo link works well when sidebar is collapsed */
+.sidebar.collapsed .logo-link {
+    justify-content: center;
+}
+
+.sidebar.collapsed .logo-link span {
+    display: none;
+}
+
+/* Update existing .logo h1 style to work with the new link */
+.logo h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+/* Add a subtle indication that the logo is clickable */
+.logo-link::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    transform: rotate(45deg);
+}
+
+.logo:hover .logo-link::after {
+    opacity: 0.5;
+}
+
+.sidebar.collapsed .logo:hover .logo-link::after {
+    opacity: 0;
+}
+
 .nav-menu {
     list-style: none;
     padding: 0 1rem;
