@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raven Layout Test</title>
+    <link href="styles.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app" data-theme="light">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <button class="sidebar-toggle" onclick="toggleSidebar()">
+                <i class="fas fa-chevron-left" id="toggle-icon"></i>
+            </button>
+            <div class="logo">
+                <h1>
+                    <i class="fas fa-crow"></i>
+                    <span>Raven</span>
+                </h1>
+            </div>
+            <ul class="nav-menu">
+                <li class="nav-item">
+                    <a class="nav-link active">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link">
+                        <i class="fas fa-server"></i>
+                        <span>Hosts</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Checks</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Alerts</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="header">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <button class="menu-toggle" onclick="toggleMobileSidebar()">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <h1 class="page-title">Layout Test</h1>
+                </div>
+                <div class="header-actions">
+                    <div class="connection-status">
+                        <div class="connection-indicator"></div>
+                        Connected
+                    </div>
+                    <button class="theme-toggle" onclick="toggleTheme()">
+                        <i class="fas fa-moon" id="theme-icon"></i>
+                    </button>
+                    <button class="btn btn-primary">
+                        <i class="fas fa-plus"></i>
+                        <span class="btn-text">Add Item</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Test Content -->
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Layout Status</span>
+                        <div class="metric-icon ok">
+                            <i class="fas fa-check"></i>
+                        </div>
+                    </div>
+                    <div class="metric-value">✓</div>
+                    <div class="metric-change">Two-column layout working</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Sidebar</span>
+                        <div class="metric-icon ok">
+                            <i class="fas fa-sidebar"></i>
+                        </div>
+                    </div>
+                    <div class="metric-value" id="sidebar-width">280px</div>
+                    <div class="metric-change">Fixed width sidebar</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Main Content</span>
+                        <div class="metric-icon ok">
+                            <i class="fas fa-expand-arrows-alt"></i>
+                        </div>
+                    </div>
+                    <div class="metric-value">Flex</div>
+                    <div class="metric-change">Responsive main area</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Responsive</span>
+                        <div class="metric-icon ok">
+                            <i class="fas fa-mobile-alt"></i>
+                        </div>
+                    </div>
+                    <div class="metric-value" id="screen-size">Desktop</div>
+                    <div class="metric-change">Adaptive design</div>
+                </div>
+            </div>
+
+            <!-- Test Table -->
+            <div class="data-table">
+                <div class="table-header">
+                    <h3 class="table-title">Layout Test Results</h3>
+                    <div class="search-box">
+                        <input class="search-input" placeholder="Search..." type="text">
+                        <button class="btn btn-secondary">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="table-content">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Component</th>
+                                <th>Status</th>
+                                <th>Width</th>
+                                <th>Behavior</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Sidebar</strong></td>
+                                <td>
+                                    <span class="status-badge status-ok">
+                                        <div class="status-indicator status-ok"></div>
+                                        OK
+                                    </span>
+                                </td>
+                                <td><code id="actual-sidebar-width">280px</code></td>
+                                <td>Fixed</td>
+                                <td>Collapsible to 80px</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Main Content</strong></td>
+                                <td>
+                                    <span class="status-badge status-ok">
+                                        <div class="status-indicator status-ok"></div>
+                                        OK
+                                    </span>
+                                </td>
+                                <td><code id="actual-main-width">calc(100% - 280px)</code></td>
+                                <td>Flexible</td>
+                                <td>Adjusts when sidebar collapses</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Mobile Layout</strong></td>
+                                <td>
+                                    <span class="status-badge" id="mobile-status">
+                                        <div class="status-indicator" id="mobile-indicator"></div>
+                                        <span id="mobile-text">N/A</span>
+                                    </span>
+                                </td>
+                                <td><span id="mobile-width">Full width</span></td>
+                                <td>Overlay</td>
+                                <td>Sidebar becomes overlay on mobile</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Theme Support</strong></td>
+                                <td>
+                                    <span class="status-badge status-ok">
+                                        <div class="status-indicator status-ok"></div>
+                                        OK
+                                    </span>
+                                </td>
+                                <td>N/A</td>
+                                <td>CSS Variables</td>
+                                <td>Light/Dark mode toggle</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Debug Info -->
+            <div class="data-table" style="margin-top: 2rem;">
+                <div class="table-header">
+                    <h3 class="table-title">Debug Information</h3>
+                </div>
+                <div style="padding: 1rem;">
+                    <div style="font-family: monospace; font-size: 0.875rem; line-height: 1.6;">
+                        <div><strong>Window Width:</strong> <span id="window-width">-</span>px</div>
+                        <div><strong>App Container:</strong> <span id="app-display">-</span></div>
+                        <div><strong>Sidebar Display:</strong> <span id="sidebar-display">-</span></div>
+                        <div><strong>Main Content Display:</strong> <span id="main-display">-</span></div>
+                        <div><strong>Flexbox Support:</strong> <span id="flexbox-support">-</span></div>
+                        <div><strong>CSS Grid Support:</strong> <span id="grid-support">-</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let sidebarCollapsed = false;
+        let currentTheme = 'light';
+
+        function updateDebugInfo() {
+            const app = document.querySelector('.app');
+            const sidebar = document.querySelector('.sidebar');
+            const mainContent = document.querySelector('.main-content');
+
+            document.getElementById('window-width').textContent = window.innerWidth;
+            document.getElementById('app-display').textContent = getComputedStyle(app).display;
+            document.getElementById('sidebar-display').textContent = getComputedStyle(sidebar).display;
+            document.getElementById('main-display').textContent = getComputedStyle(mainContent).display;
+            
+            // Check CSS support
+            document.getElementById('flexbox-support').textContent = 
+                CSS.supports('display', 'flex') ? '✓ Supported' : '✗ Not supported';
+            document.getElementById('grid-support').textContent = 
+                CSS.supports('display', 'grid') ? '✓ Supported' : '✗ Not supported';
+
+            // Update actual measurements
+            document.getElementById('actual-sidebar-width').textContent = 
+                sidebar.offsetWidth + 'px';
+            document.getElementById('actual-main-width').textContent = 
+                mainContent.offsetWidth + 'px';
+
+            // Update screen size indicator
+            const screenSize = window.innerWidth <= 480 ? 'Mobile' : 
+                             window.innerWidth <= 1024 ? 'Tablet' : 'Desktop';
+            document.getElementById('screen-size').textContent = screenSize;
+
+            // Update mobile status
+            const isMobile = window.innerWidth <= 1024;
+            const mobileStatus = document.getElementById('mobile-status');
+            const mobileIndicator = document.getElementById('mobile-indicator');
+            const mobileText = document.getElementById('mobile-text');
+
+            if (isMobile) {
+                mobileStatus.className = 'status-badge status-ok';
+                mobileIndicator.className = 'status-indicator status-ok';
+                mobileText.textContent = 'Active';
+            } else {
+                mobileStatus.className = 'status-badge status-unknown';
+                mobileIndicator.className = 'status-indicator status-unknown';
+                mobileText.textContent = 'Inactive';
+            }
+
+            // Update sidebar width indicator
+            document.getElementById('sidebar-width').textContent = 
+                sidebarCollapsed ? '80px' : '280px';
+        }
+
+        function toggleSidebar() {
+            const app = document.querySelector('.app');
+            const sidebar = document.querySelector('.sidebar');
+            const icon = document.getElementById('toggle-icon');
+            
+            sidebarCollapsed = !sidebarCollapsed;
+            
+            if (sidebarCollapsed) {
+                sidebar.classList.add('collapsed');
+                icon.className = 'fas fa-chevron-right';
+            } else {
+                sidebar.classList.remove('collapsed');
+                icon.className = 'fas fa-chevron-left';
+            }
+            
+            setTimeout(updateDebugInfo, 300); // Wait for transition
+        }
+
+        function toggleMobileSidebar() {
+            // This would be for mobile menu - not implemented in test
+            alert('Mobile sidebar toggle (not implemented in test)');
+        }
+
+        function toggleTheme() {
+            const app = document.querySelector('.app');
+            const icon = document.getElementById('theme-icon');
+            
+            currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+            app.setAttribute('data-theme', currentTheme);
+            
+            if (currentTheme === 'dark') {
+                icon.className = 'fas fa-sun';
+            } else {
+                icon.className = 'fas fa-moon';
+            }
+        }
+
+        // Initialize
+        window.addEventListener('load', updateDebugInfo);
+        window.addEventListener('resize', updateDebugInfo);
+
+        // Update debug info every second
+        setInterval(updateDebugInfo, 1000);
+
+        // CSS feature detection
+        window.addEventListener('load', function() {
+            const results = [];
+            
+            // Test flex support
+            if (CSS.supports('display', 'flex')) {
+                results.push('✓ Flexbox supported');
+            } else {
+                results.push('✗ Flexbox NOT supported');
+            }
+            
+            // Test grid support  
+            if (CSS.supports('display', 'grid')) {
+                results.push('✓ CSS Grid supported');
+            } else {
+                results.push('✗ CSS Grid NOT supported');
+            }
+            
+            console.log('CSS Support:', results.join(', '));
+        });
+    </script>
+</body>
+</html>
