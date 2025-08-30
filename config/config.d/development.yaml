@@ -1,0 +1,43 @@
+# Example include files for modular configuration
+# ==========================================
+# File: config.d/development.yaml
+# ==========================================
+# Development environment hosts
+hosts:
+  - id: "dev-web-01"
+    name: "Dev Web Server"
+    display_name: "Development Web Server"
+    ipv4: "192.168.2.10"
+    hostname: "dev-web01.example.com"
+    group: "development"
+    enabled: true
+    tags:
+      environment: "development"
+      role: "webserver"
+
+  - id: "dev-db-01"
+    name: "Dev Database"
+    display_name: "Development Database"
+    ipv4: "192.168.2.20"
+    hostname: "dev-db01.example.com"
+    group: "development"
+    enabled: false  # Disabled by default
+    tags:
+      environment: "development"
+      role: "database"
+
+# Development checks with more relaxed intervals
+checks:
+  - id: "dev-ping-check"
+    name: "Dev Ping Check"
+    type: "ping"
+    hosts: ["dev-web-01"]
+    interval:
+      ok: "120s"    # Less frequent for dev
+      warning: "60s"
+      critical: "30s"
+    threshold: 5    # More tolerant
+    timeout: "10s"
+    enabled: true
+    options:
+      count: 2

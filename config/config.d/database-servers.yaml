@@ -1,0 +1,62 @@
+# Example include files for modular configuration
+
+# ==========================================
+# File: config.d/database-servers.yaml
+# ==========================================
+# Database servers configuration
+hosts:
+  - id: "db-01"
+    name: "Primary Database"
+    display_name: "Primary PostgreSQL Database"
+    ipv4: "192.168.1.20"
+    hostname: "db01.example.com"
+    group: "database"
+    enabled: true
+    tags:
+      environment: "production"
+      role: "database"
+      type: "postgresql"
+
+  - id: "db-02"
+    name: "Secondary Database"
+    display_name: "Secondary PostgreSQL Database"
+    ipv4: "192.168.1.21"
+    hostname: "db02.example.com"
+    group: "database"
+    enabled: true
+    tags:
+      environment: "production"
+      role: "database"
+      type: "postgresql"
+
+# Database-specific checks
+checks:
+  - id: "db-connection-check"
+    name: "Database Connection"
+    type: "tcp"
+    hosts: ["db-01", "db-02"]
+    interval:
+      ok: "60s"
+      warning: "30s"
+      critical: "15s"
+    threshold: 2
+    timeout: "10s"
+    enabled: true
+    options:
+      port: 5432
+
+  - id: "db-health-check"
+    name: "Database Health"
+    type: "http"
+    hosts: ["db-01", "db-02"]
+    interval:
+      ok: "120s"
+      warning: "60s"
+      critical: "30s"
+    threshold: 3
+    timeout: "15s"
+    enabled: true
+    options:
+      url: "http://{{.Host.IPv4}}:8080/health"
+      method: "GET"
+      expected_status: 200

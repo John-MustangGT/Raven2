@@ -1,0 +1,39 @@
+# Example include files for modular configuration
+# ==========================================
+# File: config.d/custom-checks.yaml
+# ==========================================
+# Custom application-specific checks
+checks:
+  - id: "api-response-time"
+    name: "API Response Time"
+    type: "http"
+    hosts: ["web-01", "web-02"]
+    interval:
+      ok: "30s"
+      warning: "15s"
+      critical: "10s"
+    threshold: 2
+    timeout: "5s"
+    enabled: true
+    options:
+      url: "http://{{.Host.IPv4}}/api/v1/status"
+      method: "GET"
+      expected_status: 200
+      max_response_time: "2s"
+
+  - id: "disk-usage-check"
+    name: "Disk Usage Check"
+    type: "snmp"
+    hosts: ["web-01", "web-02", "db-01", "db-02"]
+    interval:
+      ok: "300s"   # 5 minutes
+      warning: "120s"  # 2 minutes
+      critical: "60s"  # 1 minute
+    threshold: 2
+    timeout: "30s"
+    enabled: true
+    options:
+      community: "public"
+      oid: "1.3.6.1.4.1.2021.9.1.9.1"  # Disk usage percentage
+      warning_threshold: 80
+      critical_threshold: 95

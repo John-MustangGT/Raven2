@@ -1,0 +1,16 @@
+# Example include files for modular configuration
+# ==========================================
+# File: config.d/monitoring-overrides.yaml
+# ==========================================
+# Override monitoring settings for specific environments
+monitoring:
+  default_interval: 45s  # Override the default from main config
+  max_retries: 5         # More retries
+  timeout: 45s           # Longer timeout
+  batch_size: 15         # Larger batches
+
+# Override logging for more verbose output
+logging:
+  level: "debug"
+  format: "json"
+

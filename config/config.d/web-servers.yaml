@@ -1,0 +1,61 @@
+# Example include files for modular configuration
+# ==========================================
+# File: config.d/web-servers.yaml
+# ==========================================
+# Additional web servers configuration
+hosts:
+  - id: "web-02"
+    name: "Web Server 2"
+    display_name: "Secondary Web Server"
+    ipv4: "192.168.1.11"
+    hostname: "web02.example.com"
+    group: "web"
+    enabled: true
+    tags:
+      environment: "production"
+      role: "webserver"
+
+  - id: "web-03"
+    name: "Web Server 3"
+    display_name: "Load Balancer"
+    ipv4: "192.168.1.12"
+    hostname: "lb01.example.com"
+    group: "web"
+    enabled: true
+    tags:
+      environment: "production"
+      role: "loadbalancer"
+
+# Web-specific checks
+checks:
+  - id: "http-health-check"
+    name: "HTTP Health Check"
+    type: "http"
+    hosts: ["web-01", "web-02", "web-03"]
+    interval:
+      ok: "60s"
+      warning: "30s"
+      critical: "15s"
+    threshold: 3
+    timeout: "10s"
+    enabled: true
+    options:
+      url: "http://{{.Host.IPv4}}/health"
+      method: "GET"
+      expected_status: 200
+
+  - id: "ssl-cert-check"
+    name: "SSL Certificate Check"
+    type: "ssl"
+    hosts: ["web-01", "web-02"]
+    interval:
+      ok: "86400s"  # Once per day
+      warning: "3600s"  # Every hour if warning
+      critical: "1800s"  # Every 30min if critical
+    threshold: 1
+    timeout: "30s"
+    enabled: true
+    options:
+      port: 443
+      warning_days: 30
+      critical_days: 7
