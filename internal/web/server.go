@@ -8,6 +8,8 @@ import (
     "time"
     "os"
     "strings"
+    "fmt"
+    "mime"
 
     "github.com/gin-gonic/gin"
     "github.com/prometheus/client_golang/prometheus/promhttp"
@@ -81,7 +83,6 @@ func (s *Server) Stop(ctx context.Context) error {
     return nil
 }
 
-// Update the setupRoutes function to include new routes
 func (s *Server) setupRoutes() {
     // Configure static file serving based on config
     if s.config.Web.ServeStatic {
@@ -122,15 +123,8 @@ func (s *Server) setupRoutes() {
         }
     }
 
-    // Main page
-    s.router.GET("/", s.serveSPA)
-
-    // Serve CSS file
-    s.router.GET("/styles.css", s.serveCSS)
-    
-    // Favicon routes
-    s.router.GET("/favicon.ico", s.serveFaviconICO)
-    s.router.GET("/favicon.svg", s.serveFavicon)
+    // Setup configurable file routes
+    s.setupFileRoutes()
 
     // API routes
     api := s.router.Group("/api")
@@ -161,7 +155,7 @@ func (s *Server) setupRoutes() {
         api.GET("/stats", s.getStats)
         api.GET("/health", s.healthCheck)
         api.GET("/diagnostics/web", s.webDiagnostics)
-        api.GET("/build-info", s.getBuildInfo) // New build info endpoint
+        api.GET("/build-info", s.getBuildInfo)
     }
 
     // WebSocket endpoint
@@ -173,116 +167,164 @@ func (s *Server) setupRoutes() {
     }
 }
 
-// ... (rest of the existing server.go methods remain the same)
-// serveSPA, serveErrorPage, healthCheck, webDiagnostics, etc.
-
-// Update the serveSPA function to use config
-func (s *Server) serveSPA(c *gin.Context) {
-    var indexPath string
-    var err error
-    
-    // If assets directory is configured, try that first
-    if s.config.Web.AssetsDir != "" {
-        configuredPath := filepath.Join(s.config.Web.AssetsDir, "index.html")
-        if _, err = os.Stat(configuredPath); err == nil {
-            indexPath = configuredPath
-        } else {
-            logrus.WithField("configured_path", configuredPath).Warn("Configured web assets directory not found, falling back to auto-detection")
-        }
+// setupFileRoutes configures routes for files specified in the config
+func (s *Server) setupFileRoutes() {
+    // Root route (either configured or default to index.html)
+    rootFile := s.config.Web.Root
+    if rootFile == "" {
+        rootFile = "index.html"
     }
     
-    // If no configured path worked, try default locations
-    if indexPath == "" {
-        possiblePaths := []string{
-            "web/index.html",                    // Development path
-            "./web/index.html",                  // Alternative development path
-            "/usr/lib/raven/web/index.html",     // Production package path
-            "/opt/raven/web/index.html",         // Alternative production path
+    // Main page route
+    s.router.GET("/", func(c *gin.Context) {
+        s.serveConfiguredFile(c, rootFile)
+    })
+
+    // If files are specified in config, create routes for each
+    if len(s.config.Web.Files) > 0 {
+        for _, filename := range s.config.Web.Files {
+            // Create a closure to capture the filename
+            filename := filename // Important: capture the loop variable
+            
+            // Create route for this file
+            route := "/" + filename
+            s.router.GET(route, func(c *gin.Context) {
+                s.serveConfiguredFile(c, filename)
+            })
+            
+            logrus.WithFields(logrus.Fields{
+                "route": route,
+                "file":  filename,
+            }).Debug("Registered file route")
+        }
+    } else {
+        // Fallback: register common files if no files specified
+        commonFiles := []string{
+            "styles.css",
+            "favicon.ico", 
+            "favicon.svg",
         }
         
-        // Find the first existing path
-        for _, path := range possiblePaths {
-            if _, err = os.Stat(path); err == nil {
-                indexPath = path
-                break
-            }
+        for _, filename := range commonFiles {
+            filename := filename // Capture loop variable
+            route := "/" + filename
+            s.router.GET(route, func(c *gin.Context) {
+                s.serveConfiguredFile(c, filename)
+            })
         }
+        
+        logrus.Debug("No files specified in config, registered default common files")
     }
+}
+
+// serveConfiguredFile serves a file from the configured assets directory
+func (s *Server) serveConfiguredFile(c *gin.Context, filename string) {
+    filePath := s.findAssetFile(filename)
     
-    if indexPath == "" {
-        logrus.WithError(err).Error("Web interface files not found")
-        s.serveErrorPage(c)
+    if filePath == "" {
+        logrus.WithField("filename", filename).Error("Asset file not found")
+        s.serveFileNotFoundError(c, filename)
         return
     }
     
-    // Log which path we're using (debug level)
-    logrus.WithField("path", indexPath).Debug("Serving web interface from")
+    // Log which path we're serving from (debug level)
+    logrus.WithFields(logrus.Fields{
+        "filename": filename,
+        "path":     filePath,
+    }).Debug("Serving asset file")
     
-    c.Header("Content-Type", "text/html")
-    c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-    c.Header("Pragma", "no-cache")
-    c.Header("Expires", "0")
+    // Set appropriate headers based on file type
+    s.setFileHeaders(c, filename)
     
     // Serve the file
-    c.File(indexPath)
+    c.File(filePath)
 }
 
-func (s *Server) serveCSS(c *gin.Context) {
-    var cssPath string
-    var err error
+// findAssetFile searches for a file in the configured assets directory and fallback locations
+func (s *Server) findAssetFile(filename string) string {
+    var searchPaths []string
     
     // If assets directory is configured, try that first
     if s.config.Web.AssetsDir != "" {
-        configuredPath := filepath.Join(s.config.Web.AssetsDir, "styles.css")
-        if _, err = os.Stat(configuredPath); err == nil {
-            cssPath = configuredPath
-        } else {
-            logrus.WithField("configured_path", configuredPath).Warn("Configured styles.css not found, falling back to auto-detection")
+        configuredPath := filepath.Join(s.config.Web.AssetsDir, filename)
+        searchPaths = append(searchPaths, configuredPath)
+    }
+    
+    // Add fallback paths for development and standard package locations
+    fallbackPaths := []string{
+        filepath.Join("web", filename),          // Development path
+        filepath.Join("./web", filename),        // Alternative development path
+        filepath.Join("/usr/lib/raven/web", filename), // Production package path
+        filepath.Join("/opt/raven/web", filename),      // Alternative production path
+    }
+    searchPaths = append(searchPaths, fallbackPaths...)
+    
+    // Find the first existing path
+    for _, path := range searchPaths {
+        if _, err := os.Stat(path); err == nil {
+            return path
         }
     }
     
-    // If no configured path worked, try default locations
-    if cssPath == "" {
-        possiblePaths := []string{
-            "web/styles.css",                    // Development path
-            "./web/styles.css",                  // Alternative development path
-            "/usr/lib/raven/web/styles.css",     // Production package path
-            "/opt/raven/web/styles.css",         // Alternative production path
-        }
-        
-        // Find the first existing path
-        for _, path := range possiblePaths {
-            if _, err = os.Stat(path); err == nil {
-                cssPath = path
-                break
-            }
-        }
-    }
-    
-    if cssPath == "" {
-        logrus.WithError(err).Error("CSS file not found")
-        c.String(http.StatusNotFound, "CSS file not found")
-        return
-    }
-    
-    // Log which path we're using (debug level)
-    logrus.WithField("path", cssPath).Debug("Serving CSS from")
-    
-    c.Header("Content-Type", "text/css")
-    c.Header("Cache-Control", "public, max-age=3600") // Cache CSS for 1 hour
-    
-    // Serve the file
-    c.File(cssPath)
+    return "" // File not found
 }
 
-// Extract error page to separate method
-func (s *Server) serveErrorPage(c *gin.Context) {
-    c.Header("Content-Type", "text/html")
-    c.String(http.StatusInternalServerError, `
+// setFileHeaders sets appropriate HTTP headers based on file type
+func (s *Server) setFileHeaders(c *gin.Context, filename string) {
+    // Determine content type from file extension
+    ext := filepath.Ext(filename)
+    contentType := mime.TypeByExtension(ext)
+    if contentType == "" {
+        // Fallback content types for common web files
+        switch ext {
+        case ".html":
+            contentType = "text/html; charset=utf-8"
+        case ".css":
+            contentType = "text/css"
+        case ".js":
+            contentType = "application/javascript"
+        case ".svg":
+            contentType = "image/svg+xml"
+        case ".ico":
+            contentType = "image/x-icon"
+        case ".png":
+            contentType = "image/png"
+        case ".jpg", ".jpeg":
+            contentType = "image/jpeg"
+        default:
+            contentType = "application/octet-stream"
+        }
+    }
+    
+    c.Header("Content-Type", contentType)
+    
+    // Set caching headers based on file type
+    switch {
+    case strings.HasSuffix(filename, ".html"):
+        // Don't cache HTML files
+        c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+        c.Header("Pragma", "no-cache")
+        c.Header("Expires", "0")
+    case strings.HasSuffix(filename, ".css") || strings.HasSuffix(filename, ".js"):
+        // Cache CSS and JS for 1 hour
+        c.Header("Cache-Control", "public, max-age=3600")
+    case strings.Contains(filename, "favicon"):
+        // Cache favicons for 1 year
+        c.Header("Cache-Control", "public, max-age=31536000")
+    default:
+        // Default cache for other static assets
+        c.Header("Cache-Control", "public, max-age=86400") // 24 hours
+    }
+}
+
+// serveFileNotFoundError serves a helpful error page when a configured file is not found
+func (s *Server) serveFileNotFoundError(c *gin.Context, filename string) {
+    c.Header("Content-Type", "text/html; charset=utf-8")
+    c.String(http.StatusNotFound, `
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Raven - Web Interface Not Found</title>
+    <title>Raven - File Not Found</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; background-color: #f5f5f5; }
         .error-container { 
@@ -297,63 +339,117 @@ func (s *Server) serveErrorPage(c *gin.Context) {
         .paths { background: #f8f9fa; padding: 15px; border-left: 4px solid #e74c3c; margin: 20px 0; }
         .solution { background: #e8f5e9; padding: 15px; border-left: 4px solid #4caf50; margin: 20px 0; }
         code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
-        .config-example { background: #f8f9fa; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        ul { margin: 10px 0; padding-left: 20px; }
     </style>
 </head>
 <body>
     <div class="error-container">
-        <h1>🐦 Raven Web Interface Not Found</h1>
-        <p>The Raven web interface files could not be located.</p>
+        <h1>🐦 Raven - File Not Found</h1>
+        <p>The requested file <code>%s</code> could not be found.</p>
         
         <div class="config-info">
             <strong>Current Configuration:</strong><br>
-            Configured assets directory: <code>%s</code><br>
-            (Empty means auto-detect)
+            Assets directory: <code>%s</code><br>
+            Configured files: <code>%v</code><br>
+            Root file: <code>%s</code>
         </div>
         
         <div class="paths">
-            <strong>Auto-detection searched paths:</strong><br>
-            • <code>web/index.html</code> (development)<br>
-            • <code>./web/index.html</code> (alternative development)<br>
-            • <code>/usr/lib/raven/web/index.html</code> (Debian package)<br>
-            • <code>/opt/raven/web/index.html</code> (alternative package)
+            <strong>Searched locations:</strong>
+            <ul>%s</ul>
         </div>
         
         <div class="solution">
             <strong>Solutions:</strong><br><br>
             
-            <strong>1. Configure explicit path in config.yaml:</strong><br>
-            <div class="config-example">
-web:<br>
-&nbsp;&nbsp;assets_dir: "/usr/lib/raven/web"&nbsp;&nbsp;# For package install<br>
-&nbsp;&nbsp;assets_dir: "./web"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# For development<br>
-&nbsp;&nbsp;serve_static: true
-            </div>
+            <strong>1. Ensure file exists in assets directory:</strong><br>
+            <code>ls -la %s</code><br><br>
             
-            <strong>2. If running from source:</strong> Make sure <code>web/index.html</code> exists<br><br>
+            <strong>2. Check file permissions:</strong><br>
+            <code>chmod 644 %s</code><br><br>
             
-            <strong>3. If installed from package:</strong> Try reinstalling:<br>
-            <code>sudo dpkg -i --force-confask raven_*.deb</code><br><br>
-            
-            <strong>4. Check installation:</strong> <code>ls -la /usr/lib/raven/web/</code>
+            <strong>3. Verify configuration in config.yaml:</strong><br>
+            Make sure the file is listed in the <code>web.files</code> section.
         </div>
         
-        <p><strong>API Status:</strong> ✅ The REST API is working</p>
-        <p><strong>Alternative access:</strong> You can use the API directly at <code>/api/</code> endpoints</p>
+        <p><strong>API Status:</strong> ✅ The REST API is working at <code>/api/</code></p>
         <p><strong>Diagnostics:</strong> Visit <code>/api/diagnostics/web</code> for detailed information</p>
         
         <hr>
         <p><em>Raven v2.0 Network Monitoring</em></p>
     </div>
 </body>
-</html>`, s.config.Web.AssetsDir)
+</html>`, 
+        filename,
+        s.config.Web.AssetsDir,
+        s.config.Web.Files,
+        func() string {
+            if s.config.Web.Root != "" {
+                return s.config.Web.Root
+            }
+            return "index.html (default)"
+        }(),
+        s.generateSearchPathsList(filename),
+        s.config.Web.AssetsDir,
+        filepath.Join(s.config.Web.AssetsDir, filename),
+    )
 }
 
-// ... (include all other existing methods from the original server.go)
+// generateSearchPathsList creates an HTML list of searched paths for error display
+func (s *Server) generateSearchPathsList(filename string) string {
+    var searchPaths []string
+    
+    if s.config.Web.AssetsDir != "" {
+        searchPaths = append(searchPaths, filepath.Join(s.config.Web.AssetsDir, filename))
+    }
+    
+    fallbackPaths := []string{
+        filepath.Join("web", filename),
+        filepath.Join("./web", filename),
+        filepath.Join("/usr/lib/raven/web", filename),
+        filepath.Join("/opt/raven/web", filename),
+    }
+    searchPaths = append(searchPaths, fallbackPaths...)
+    
+    var listItems strings.Builder
+    for _, path := range searchPaths {
+        if _, err := os.Stat(path); err == nil {
+            listItems.WriteString(fmt.Sprintf("<li><code>%s</code> ✅ (exists but not accessible)</li>", path))
+        } else {
+            listItems.WriteString(fmt.Sprintf("<li><code>%s</code> ❌ (not found)</li>", path))
+        }
+    }
+    
+    return listItems.String()
+}
+
+// Legacy methods for backward compatibility - these now use the new configurable system
+
+func (s *Server) serveSPA(c *gin.Context) {
+    rootFile := s.config.Web.Root
+    if rootFile == "" {
+        rootFile = "index.html"
+    }
+    s.serveConfiguredFile(c, rootFile)
+}
+
+func (s *Server) serveCSS(c *gin.Context) {
+    s.serveConfiguredFile(c, "styles.css")
+}
+
+func (s *Server) serveFavicon(c *gin.Context) {
+    s.serveConfiguredFile(c, "favicon.svg")
+}
+
+func (s *Server) serveFaviconICO(c *gin.Context) {
+    s.serveConfiguredFile(c, "favicon.ico")
+}
+
+// Rest of the methods remain the same...
 
 func (s *Server) getStats(c *gin.Context) {
     statuses, err := s.store.GetStatus(c.Request.Context(), database.StatusFilters{
-        Limit: 1000, // Get recent statuses for stats
+        Limit: 1000,
     })
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get status"})
@@ -417,7 +513,7 @@ func (s *Server) getStatusHistory(c *gin.Context) {
     hostID := c.Param("host")
     checkID := c.Param("check")
     
-    since := time.Now().Add(-24 * time.Hour) // Last 24 hours by default
+    since := time.Now().Add(-24 * time.Hour)
     if sinceStr := c.Query("since"); sinceStr != "" {
         if parsedSince, err := time.Parse(time.RFC3339, sinceStr); err == nil {
             since = parsedSince
@@ -452,12 +548,11 @@ func (s *Server) updateMetricsRoutine(ctx context.Context) {
     }
 }
 
-// Update the healthCheck function
 func (s *Server) healthCheck(c *gin.Context) {
     health := gin.H{
         "status":    "healthy",
         "timestamp": time.Now(),
-        "version":   Version, // Use build version
+        "version":   Version,
         "services":  gin.H{},
     }
     
@@ -478,51 +573,46 @@ func (s *Server) healthCheck(c *gin.Context) {
     }
     
     // Check web assets
-    webPaths := []string{
-        "web/index.html",
-        "./web/index.html", 
-        "/usr/lib/raven/web/index.html",
-        "/opt/raven/web/index.html",
-        "web/styles.css",
-        "./web/styles.css", 
-        "/usr/lib/raven/web/styles.css",
-        "/opt/raven/web/styles.css",
+    missingFiles := []string{}
+    foundFiles := []string{}
+    
+    filesToCheck := s.config.Web.Files
+    if len(filesToCheck) == 0 {
+        // Check default files if none configured
+        filesToCheck = []string{"index.html", "styles.css", "favicon.ico"}
     }
     
-    webAssetFound := false
-    var webPath string
-    for _, path := range webPaths {
-        if _, err := os.Stat(path); err == nil {
-            webAssetFound = true
-            webPath = path
-            break
+    for _, filename := range filesToCheck {
+        if s.findAssetFile(filename) != "" {
+            foundFiles = append(foundFiles, filename)
+        } else {
+            missingFiles = append(missingFiles, filename)
         }
     }
     
-    if webAssetFound {
+    if len(missingFiles) == 0 {
         services["web_interface"] = gin.H{
             "status": "healthy",
-            "path":   webPath,
+            "found_files": foundFiles,
         }
     } else {
         services["web_interface"] = gin.H{
-            "status": "unhealthy",
-            "error":  "Web interface files not found",
-            "searched_paths": webPaths,
+            "status": "degraded",
+            "found_files": foundFiles,
+            "missing_files": missingFiles,
         }
-        health["status"] = "degraded"
+        if len(foundFiles) == 0 {
+            health["status"] = "degraded"
+        }
     }
     
-    // Check WebSocket clients
     services["websocket"] = gin.H{
-        "status":           "healthy", 
-        "active_clients":   len(s.wsClients),
+        "status":         "healthy", 
+        "active_clients": len(s.wsClients),
     }
     
-    // Check monitoring engine
     services["monitoring"] = gin.H{"status": "healthy"}
     
-    // Set HTTP status based on overall health
     httpStatus := http.StatusOK
     if health["status"] == "degraded" {
         httpStatus = http.StatusServiceUnavailable
@@ -531,7 +621,6 @@ func (s *Server) healthCheck(c *gin.Context) {
     c.JSON(httpStatus, health)
 }
 
-// Update the webDiagnostics function to include config info
 func (s *Server) webDiagnostics(c *gin.Context) {
     diagnostics := gin.H{
         "timestamp": time.Now(),
@@ -539,19 +628,21 @@ func (s *Server) webDiagnostics(c *gin.Context) {
             "assets_dir":    s.config.Web.AssetsDir,
             "static_dir":    s.config.Web.StaticDir,
             "serve_static":  s.config.Web.ServeStatic,
+            "root":          s.config.Web.Root,
+            "files":         s.config.Web.Files,
         },
-        "web_asset_search": gin.H{},
+        "web_assets": gin.H{},
     }
 
-    // Check both HTML and CSS files
-    assetsToCheck := map[string]string{
-        "index.html": "Main HTML file",
-        "styles.css": "CSS stylesheet",
+    // Check all configured files
+    filesToCheck := s.config.Web.Files
+    if len(filesToCheck) == 0 {
+        filesToCheck = []string{"index.html", "styles.css", "favicon.ico", "favicon.svg"}
     }
     
     assetResults := make(map[string]interface{})
     
-    for filename, description := range assetsToCheck {
+    for _, filename := range filesToCheck {
         var searchPaths []string
         
         if s.config.Web.AssetsDir != "" {
@@ -559,20 +650,19 @@ func (s *Server) webDiagnostics(c *gin.Context) {
             searchPaths = append(searchPaths, configuredPath)
         }
         
-        // Add default search paths
-        defaultPaths := []string{
-            "web/" + filename,
-            "./web/" + filename,
-            "/usr/lib/raven/web/" + filename,
-            "/opt/raven/web/" + filename,
+        fallbackPaths := []string{
+            filepath.Join("web", filename),
+            filepath.Join("./web", filename),
+            filepath.Join("/usr/lib/raven/web", filename),
+            filepath.Join("/opt/raven/web", filename),
         }
-        searchPaths = append(searchPaths, defaultPaths...)
+        searchPaths = append(searchPaths, fallbackPaths...)
         
         pathResults := make([]gin.H, 0, len(searchPaths))
         
         for i, path := range searchPaths {
             result := gin.H{
-                "path": path,
+                "path":     path,
                 "priority": i + 1,
             }
             
@@ -587,6 +677,20 @@ func (s *Server) webDiagnostics(c *gin.Context) {
                 result["size"] = stat.Size()
                 result["modified"] = stat.ModTime()
                 result["readable"] = true
+                
+                // For HTML files, check if they look valid
+                if strings.HasSuffix(filename, ".html") {
+                    if file, err := os.Open(path); err == nil {
+                        buffer := make([]byte, 200)
+                        if n, err := file.Read(buffer); err == nil {
+                            content := string(buffer[:n])
+                            result["looks_like_html"] = strings.Contains(strings.ToLower(content), "<!doctype html") || 
+                                                       strings.Contains(strings.ToLower(content), "<html")
+                            result["preview"] = content
+                        }
+                        file.Close()
+                    }
+                }
             } else {
                 result["exists"] = false
                 result["error"] = err.Error()
@@ -596,117 +700,28 @@ func (s *Server) webDiagnostics(c *gin.Context) {
         }
         
         assetResults[filename] = gin.H{
-            "description": description,
             "paths": pathResults,
+            "configured": contains(s.config.Web.Files, filename),
         }
     }
     
     diagnostics["web_assets"] = assetResults
     
-    // Determine search paths based on configuration
-    var searchPaths []string
-    
-    if s.config.Web.AssetsDir != "" {
-        // If assets directory is configured, check that first
-        configuredPath := filepath.Join(s.config.Web.AssetsDir, "index.html")
-        searchPaths = append(searchPaths, configuredPath)
-    }
-    
-    // Add default search paths
-    defaultPaths := []string{
-        "web/index.html",
-        "./web/index.html",
-        "/usr/lib/raven/web/index.html", 
-        "/opt/raven/web/index.html",
-    }
-    searchPaths = append(searchPaths, defaultPaths...)
-    
-    pathResults := make([]gin.H, 0, len(searchPaths))
-    
-    for i, path := range searchPaths {
-        result := gin.H{
-            "path": path,
-            "priority": i + 1, // Show search order
-        }
-        
-        if i == 0 && s.config.Web.AssetsDir != "" {
-            result["source"] = "configured"
-        } else {
-            result["source"] = "default"
-        }
-        
-        if stat, err := os.Stat(path); err == nil {
-            result["exists"] = true
-            result["size"] = stat.Size()
-            result["modified"] = stat.ModTime()
-            result["readable"] = true
-            
-            // Try to read first few bytes to verify it's HTML
-            if file, err := os.Open(path); err == nil {
-                buffer := make([]byte, 200)
-                if n, err := file.Read(buffer); err == nil {
-                    content := string(buffer[:n])
-                    result["looks_like_html"] = strings.Contains(strings.ToLower(content), "<!doctype html") || 
-                                               strings.Contains(strings.ToLower(content), "<html")
-                    result["preview"] = content
-                }
-                file.Close()
-            }
-        } else {
-            result["exists"] = false
-            result["error"] = err.Error()
-        }
-        
-        pathResults = append(pathResults, result)
-    }
-    
-    diagnostics["web_asset_search"] = pathResults
-    
-    // Check current working directory
     if cwd, err := os.Getwd(); err == nil {
         diagnostics["working_directory"] = cwd
     }
     
-    // Check static directory if configured
-    if s.config.Web.ServeStatic {
-        staticDiagnostics := gin.H{}
-        
-        var staticDir string
-        if s.config.Web.AssetsDir != "" {
-            if filepath.IsAbs(s.config.Web.StaticDir) {
-                staticDir = s.config.Web.StaticDir
-            } else {
-                staticDir = filepath.Join(s.config.Web.AssetsDir, s.config.Web.StaticDir)
-            }
-        }
-        
-        if staticDir != "" {
-            staticDiagnostics["configured_path"] = staticDir
-            if stat, err := os.Stat(staticDir); err == nil {
-                staticDiagnostics["exists"] = true
-                staticDiagnostics["is_directory"] = stat.IsDir()
-                staticDiagnostics["modified"] = stat.ModTime()
-                
-                // List contents if it's a directory
-                if stat.IsDir() {
-                    if files, err := os.ReadDir(staticDir); err == nil {
-                        fileNames := make([]string, 0, len(files))
-                        for _, file := range files {
-                            fileNames = append(fileNames, file.Name())
-                        }
-                        staticDiagnostics["contents"] = fileNames
-                    }
-                }
-            } else {
-                staticDiagnostics["exists"] = false
-                staticDiagnostics["error"] = err.Error()
-            }
-        }
-        
-        diagnostics["static_directory"] = staticDiagnostics
-    }
-    
     c.JSON(http.StatusOK, diagnostics)
+}
+
+// Helper function to check if slice contains string
+func contains(slice []string, item string) bool {
+    for _, s := range slice {
+        if s == item {
+            return true
+        }
+    }
+    return false
 }
 
 func corsMiddleware() gin.HandlerFunc {

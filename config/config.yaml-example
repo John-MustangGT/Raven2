@@ -1,121 +1,108 @@
-# config.yaml - Main configuration file
+# Example config.yaml showing new web configuration options
+
 server:
   port: ":8000"
-  workers: 5
-  plugin_dir: "./plugins"
-  read_timeout: "30s"
-  write_timeout: "30s"
+  workers: 4
+  read_timeout: 30s
+  write_timeout: 30s
+
+# New web configuration section with configurable file serving
+web:
+  # Directory containing web assets (HTML, CSS, JS, etc.)
+  assets_dir: "/usr/lib/raven/web"
+  
+  # Static files directory (relative to assets_dir if not absolute)
+  static_dir: "static"
+  serve_static: true
+  
+  # Root file to serve at "/" (default: index.html)
+  root: "index.html"
+  
+  # List of files to serve from assets_dir
+  # Each file will be available at "/{filename}"
+  files:
+    - "index.html"      # Main application
+    - "styles.css"      # Stylesheet
+    - "app.js"          # JavaScript application
+    - "favicon.ico"     # Browser favicon (ICO format)
+    - "favicon.svg"     # SVG favicon
+    - "manifest.json"   # PWA manifest
+    - "robots.txt"      # Search engine instructions
+    - "sitemap.xml"     # Search engine sitemap
 
 database:
   type: "boltdb"
   path: "./data/raven.db"
-  backup_interval: "1h"
-  cleanup_interval: "24h"
-  history_retention: "30d"
-  compact_interval: "7d"
+  backup_interval: 6h
+  cleanup_interval: 24h
+  history_retention: 720h  # 30 days
 
 prometheus:
   enabled: true
   metrics_path: "/metrics"
-  push_gateway: ""
 
 monitoring:
-  default_interval: "5m"
+  default_interval: 60s
   max_retries: 3
-  timeout: "30s"
-  batch_size: 100
+  timeout: 30s
+  batch_size: 10
 
 logging:
   level: "info"
-  format: "text"
+  format: "json"
 
+# Example hosts configuration
 hosts:
-  - id: "router-main"
-    name: "router"
-    display_name: "Main Router"
-    ipv4: "192.168.1.1"
-    hostname: "router.local"
-    group: "network"
-    enabled: true
-    tags:
-      environment: "production"
-      criticality: "high"
-
-  - id: "web-server-01"
-    name: "web-server-01"
-    display_name: "Web Server 1"
+  - id: "web-01"
+    name: "Web Server 1"
+    display_name: "Primary Web Server"
     ipv4: "192.168.1.10"
     hostname: "web01.example.com"
-    group: "servers"
+    group: "web"
     enabled: true
     tags:
       environment: "production"
-      service: "web"
+      role: "webserver"
 
-  - id: "database-master"
-    name: "db-master"
-    display_name: "Database Master"
+  - id: "db-01"
+    name: "Database Server"
+    display_name: "Primary Database"
     ipv4: "192.168.1.20"
-    hostname: "db-master.example.com"
-    group: "servers"
+    hostname: "db01.example.com"
+    group: "database"
     enabled: true
     tags:
       environment: "production"
-      service: "database"
-      role: "master"
+      role: "database"
 
+# Example checks configuration
 checks:
-  - id: "ping-check"
-    name: "basic-ping"
-    type: "ping"
-    hosts: ["router", "web-server-01", "db-master"]
+  - id: "http-check"
+    name: "HTTP Health Check"
+    type: "http"
+    hosts: ["web-01"]
     interval:
-      ok: "5m"
-      warning: "1m"
-      critical: "30s"
-      unknown: "30s"
+      ok: "60s"
+      warning: "30s"
+      critical: "15s"
     threshold: 3
     timeout: "10s"
     enabled: true
     options:
+      url: "http://{{.Host.IPv4}}/health"
+      method: "GET"
+      expected_status: 200
+      
+  - id: "ping-check"
+    name: "Ping Connectivity"
+    type: "ping"
+    hosts: ["web-01", "db-01"]
+    interval:
+      ok: "30s"
+      warning: "15s"
+      critical: "5s"
+    threshold: 3
+    timeout: "5s"
+    enabled: true
+    options:
       count: 3
-      rtt_warn: 20.0
-      rtt_crit: 50.0
-      loss_warn: 10
-      loss_crit: 25
-
-  - id: "ssh-check"
-    name: "ssh-connectivity"
-    type: "nagios"
-    hosts: ["web-server-01", "db-master"]
-    interval:
-      ok: "10m"
-      warning: "2m"
-      critical: "1m"
-      unknown: "1m"
-    threshold: 2
-    timeout: "15s"
-    enabled: true
-    options:
-      program: "/usr/lib/nagios/plugins/check_ssh"
-      options: ["-4", "-t", "10"]
-      add_host: true
-      use_dns: false
-
-  - id: "web-service"
-    name: "web-health"
-    type: "nagios"
-    hosts: ["web-server-01"]
-    interval:
-      ok: "2m"
-      warning: "30s"
-      critical: "15s"
-      unknown: "1m"
-    threshold: 1
-    timeout: "30s"
-    enabled: true
-    options:
-      program: "/usr/lib/nagios/plugins/check_http"
-      options: ["-H", "localhost", "-p", "80", "-u", "/health"]
-      add_host: false
-

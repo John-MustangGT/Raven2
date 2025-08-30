@@ -29,9 +29,11 @@ type ServerConfig struct {
 }
 
 type WebConfig struct {
-    AssetsDir    string `yaml:"assets_dir"`
-    StaticDir    string `yaml:"static_dir"`
-    ServeStatic  bool   `yaml:"serve_static"`
+    AssetsDir    string   `yaml:"assets_dir"`
+    StaticDir    string   `yaml:"static_dir"`
+    ServeStatic  bool     `yaml:"serve_static"`
+    Root         string   `yaml:"root"`         // Root file to serve at "/"
+    Files        []string `yaml:"files"`       // List of files to serve
 }
 
 type DatabaseConfig struct {
@@ -124,8 +126,12 @@ func setDefaults(cfg *Config) {
     if cfg.Web.StaticDir == "" {
         cfg.Web.StaticDir = "static"
     }
+    if cfg.Web.Root == "" {
+        cfg.Web.Root = "index.html"
+    }
     // Note: AssetsDir defaults to empty (auto-detect)
     // ServeStatic defaults to false (zero value)
+    // Files defaults to empty slice (will use common defaults)
     
     if cfg.Prometheus.MetricsPath == "" {
         cfg.Prometheus.MetricsPath = "/metrics"
@@ -145,5 +151,50 @@ func validate(cfg *Config) error {
     if cfg.Database.Type != "boltdb" {
         return fmt.Errorf("only boltdb is supported currently")
     }
+    
+    // Validate web configuration
+    if cfg.Web.Root == "" {
+        return fmt.Errorf("web.root cannot be empty")
+    }
+    
+    // If assets_dir is specified, validate it exists
+    if cfg.Web.AssetsDir != "" {
+        if _, err := os.Stat(cfg.Web.AssetsDir); err != nil {
+            return fmt.Errorf("web.assets_dir '%s' does not exist or is not accessible: %w", cfg.Web.AssetsDir, err)
+        }
+    }
+    
+    // Validate that files in the files list are reasonable
+    for _, filename := range cfg.Web.Files {
+        if filename == "" {
+            return fmt.Errorf("web.files contains empty filename")
+        }
+        // Check for path traversal attempts
+        if containsPathTraversal(filename) {
+            return fmt.Errorf("web.files contains invalid filename with path traversal: %s", filename)
+        }
+    }
+    
     return nil
+}
+
+// containsPathTraversal checks if a filename contains path traversal sequences
+func containsPathTraversal(filename string) bool {
+    // Simple check for common path traversal patterns
+    dangerous := []string{"../", "..\\", "/", "\\"}
+    for _, pattern := range dangerous {
+        if len(pattern) > 0 && (pattern == "/" || pattern == "\\") {
+            // Only check for leading slashes
+            if len(filename) > 0 && (filename[0] == '/' || filename[0] == '\\') {
+                return true
+            }
+        } else if len(filename) >= len(pattern) {
+            for i := 0; i <= len(filename)-len(pattern); i++ {
+                if filename[i:i+len(pattern)] == pattern {
+                    return true
+                }
+            }
+        }
+    }
+    return false
 }
