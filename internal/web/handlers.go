@@ -126,7 +126,9 @@ func (s *Server) getHosts(c *gin.Context) {
         }
 
         // Check IP address connectivity
-        ipOK, ipLastChecked := s.checkIPAddress(host.IPv4, host.Hostname)
+//        ipOK, ipLastChecked := s.checkIPAddress(host.IPv4, host.Hostname)
+        var ipOK = true
+        var ipLastChecked = time.Now()
 
         // Get soft fail information for all checks on this host
         softFailInfo := s.getSoftFailInfo(c.Request.Context(), host.ID)
