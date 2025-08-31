@@ -56,15 +56,12 @@ func (am *SimpleAlertManager) PurgeStaleAlerts(ctx context.Context) error {
             }).Debug("Would purge stale alert (extend your BoltStore to implement deletion)")
 
             am.store.DeleteStatus(ctx, status.HostID, status.CheckID)
-            
-            // For now, just log what would be purged
-            // You can implement actual deletion by adding the ExtendedStore methods
             purgedCount++
         }
     }
     
     if purgedCount > 0 {
-        logrus.WithField("would_purge_count", purgedCount).Info("Alert purge completed (simulation)")
+        logrus.WithField("would_purge_count", purgedCount).Info("Alert purge completed")
     } else {
         logrus.Debug("No stale alerts found to purge")
     }

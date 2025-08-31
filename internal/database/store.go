@@ -26,6 +26,8 @@ type Store interface {
     GetStatus(ctx context.Context, filters StatusFilters) ([]Status, error)
     UpdateStatus(ctx context.Context, status *Status) error
     GetStatusHistory(ctx context.Context, hostID, checkID string, since time.Time) ([]Status, error)
+    DeleteStatus(ctx context.Context, hostID, checkID string) error
+
 
     // Close the database connection
     Close() error

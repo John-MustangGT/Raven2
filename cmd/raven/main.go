@@ -43,7 +43,7 @@ func main() {
     }).Info("Starting Raven monitoring system")
 
     // Initialize database
-    store, err := database.NewBoltStore(cfg.Database.Path)
+    store, err := database.NewExtendedBoltStore(cfg.Database.Path)
     if err != nil {
         logrus.Fatalf("Failed to initialize database: %v", err)
     }

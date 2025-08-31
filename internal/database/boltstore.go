@@ -318,11 +318,38 @@ func (s *BoltStore) DeleteCheck(ctx context.Context, id string) error {
 
 func (s *BoltStore) DeleteStatus(ctx context.Context, hostID, checkID string) error {
     return s.db.Update(func(tx *bbolt.Tx) error {
+        // Delete from current status bucket
         statusBucket := tx.Bucket(StatusBucket)
         if statusBucket != nil {
             key := fmt.Sprintf("%s:%s", hostID, checkID)
-            return statusBucket.Delete([]byte(key))
+            if err := statusBucket.Delete([]byte(key)); err != nil {
+                return fmt.Errorf("failed to delete current status: %w", err)
+            }
         }
+        
+        // Also delete from history bucket if it exists
+        historyBucket := tx.Bucket(StatusHistBucket)
+        if historyBucket != nil {
+            prefix := fmt.Sprintf("%s:%s:", hostID, checkID)
+            cursor := historyBucket.Cursor()
+            
+            // Collect keys to delete
+            var keysToDelete [][]byte
+            for k, _ := cursor.Seek([]byte(prefix)); k != nil && strings.HasPrefix(string(k), prefix); k, _ = cursor.Next() {
+                // Make a copy of the key since BoltDB reuses the slice
+                keyCopy := make([]byte, len(k))
+                copy(keyCopy, k)
+                keysToDelete = append(keysToDelete, keyCopy)
+            }
+            
+            // Delete collected keys
+            for _, key := range keysToDelete {
+                if err := historyBucket.Delete(key); err != nil {
+                    return fmt.Errorf("failed to delete history entry: %w", err)
+                }
+            }
+        }
+        
         return nil
     })
 }
