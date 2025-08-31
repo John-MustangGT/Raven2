@@ -1,4 +1,4 @@
-// js/components/dashboard-view.js
+// js/components/dashboard-view.js - Enhanced with soft fail and OK duration info
 window.DashboardView = {
     props: {
         stats: Object,
@@ -7,6 +7,12 @@ window.DashboardView = {
     methods: {
         formatTime(timestamp) {
             return window.RavenUtils.formatTime(timestamp);
+        },
+        formatSoftFailStatus(softFailInfo) {
+            return window.RavenUtils.formatSoftFailStatus(softFailInfo);
+        },
+        formatOKDuration(okInfo) {
+            return window.RavenUtils.formatOKDuration(okInfo);
         }
     },
     template: `
@@ -54,7 +60,7 @@ window.DashboardView = {
                 </div>
             </div>
 
-            <!-- Recent Activity -->
+            <!-- Recent Activity with Enhanced Status Info -->
             <div class="data-table">
                 <div class="table-header">
                     <h3 class="table-title">Recent Activity</h3>
@@ -73,13 +79,24 @@ window.DashboardView = {
                         <tbody>
                             <tr v-for="activity in recentActivity" :key="activity.id">
                                 <td>{{ formatTime(activity.timestamp) }}</td>
-                                <td>{{ activity.host }}</td>
-                                <td>{{ activity.check }}</td>
+                                <td>{{ activity.host_name || activity.host }}</td>
+                                <td>{{ activity.check_name || activity.check }}</td>
                                 <td>
-                                    <span class="status-badge" :class="'status-' + activity.status">
-                                        <div class="status-indicator" :class="'status-' + activity.status"></div>
-                                        {{ activity.status }}
-                                    </span>
+                                    <div class="enhanced-status-badge">
+                                        <div class="status-main">
+                                            <span class="status-badge" :class="'status-' + activity.status">
+                                                <div class="status-indicator" :class="'status-' + activity.status"></div>
+                                                {{ activity.status.toUpperCase() }}
+                                                <span v-if="activity.soft_fails_info && activity.status !== 'ok'" class="soft-fail-indicator">
+                                                    ({{ activity.soft_fails_info.current_fails }}/{{ activity.soft_fails_info.threshold_max }})
+                                                </span>
+                                            </span>
+                                        </div>
+                                        <div v-if="activity.ok_info && activity.status === 'ok'" class="ok-duration">
+                                            <i class="fas fa-clock"></i>
+                                            OK since {{ formatTime(activity.ok_info.ok_since) }}
+                                        </div>
+                                    </div>
                                 </td>
                                 <td>{{ activity.message }}</td>
                             </tr>

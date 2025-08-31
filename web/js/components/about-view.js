@@ -1,4 +1,4 @@
-// js/components/about-view.js
+// js/components/about-view.js - Enhanced with new features information
 window.AboutView = {
     props: {
         buildInfo: Object,
@@ -28,7 +28,7 @@ window.AboutView = {
                         </div>
                         <h2 style="margin-bottom: 0.5rem;">Raven Network Monitoring</h2>
                         <p style="color: var(--text-muted); font-size: 1.125rem;">
-                            Advanced network monitoring and alerting system
+                            Advanced network monitoring with IP connectivity checks and soft fail tracking
                         </p>
                         <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 1rem;">
                             Visit: <a :href="webConfig.header_link" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">{{ webConfig.header_link }}</a>
@@ -80,6 +80,112 @@ window.AboutView = {
                             </div>
                             <div class="metric-value" style="font-size: 1.25rem;">{{ buildInfo.go_version || 'unknown' }}</div>
                             <div class="metric-change">{{ buildInfo.go_os }}/{{ buildInfo.go_arch }}</div>
+                        </div>
+                    </div>
+
+                    <!-- Enhanced Features Section -->
+                    <div class="data-table" style="margin-bottom: 2rem;">
+                        <div class="table-header">
+                            <h4 class="table-title">
+                                <i class="fas fa-sparkles"></i> Enhanced Monitoring Features
+                            </h4>
+                        </div>
+                        <div class="table-content">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Feature</th>
+                                        <th>Status</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <i class="fas fa-wifi" style="color: var(--primary-color);"></i>
+                                                <strong>IP Connectivity Checks</strong>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span class="status-badge status-ok">
+                                                <i class="fas fa-check"></i> Active
+                                            </span>
+                                        </td>
+                                        <td>Real-time validation of host IP connectivity using multiple port tests</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <i class="fas fa-hourglass-half" style="color: var(--warning-color);"></i>
+                                                <strong>Soft Fail Tracking</strong>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span class="status-badge status-ok">
+                                                <i class="fas fa-check"></i> Active
+                                            </span>
+                                        </td>
+                                        <td>Consecutive failure counting (e.g., 2/3) before status changes</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <i class="fas fa-clock" style="color: var(--success-color);"></i>
+                                                <strong>OK Duration Tracking</strong>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span class="status-badge status-ok">
+                                                <i class="fas fa-check"></i> Active
+                                            </span>
+                                        </td>
+                                        <td>Shows how long services have been healthy with timestamps</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <i class="fas fa-chart-line" style="color: var(--primary-color);"></i>
+                                                <strong>Enhanced Status Display</strong>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span class="status-badge status-ok">
+                                                <i class="fas fa-check"></i> Active
+                                            </span>
+                                        </td>
+                                        <td>Rich status information with contextual details and history</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <i class="fas fa-exclamation-triangle" style="color: var(--warning-color);"></i>
+                                                <strong>Early Warning System</strong>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span class="status-badge status-ok">
+                                                <i class="fas fa-check"></i> Active
+                                            </span>
+                                        </td>
+                                        <td>Identify potential issues before they become critical failures</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <i class="fas fa-filter" style="color: var(--primary-color);"></i>
+                                                <strong>Advanced Filtering</strong>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span class="status-badge status-ok">
+                                                <i class="fas fa-check"></i> Active
+                                            </span>
+                                        </td>
+                                        <td>Filter alerts by soft fails, IP issues, and status categories</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
@@ -174,10 +280,10 @@ window.AboutView = {
                     <div style="text-align: center; margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--border-color); color: var(--text-muted);">
                         <p>
                             <i class="fas fa-heart" style="color: var(--danger-color);"></i>
-                            Built with Go and Vue.js
+                            Built with Go and Vue.js - Enhanced with advanced monitoring capabilities
                         </p>
                         <p style="font-size: 0.875rem; margin-top: 0.5rem;">
-                            © 2024 Raven Network Monitoring System
+                            © 2024 Raven Network Monitoring System v2.0
                         </p>
                     </div>
                 </div>

@@ -10,1362 +10,233 @@
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="styles.css" rel="stylesheet">
+    <style>
+        /* Enhanced styles for new features */
+        .ip-check-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.75rem;
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            margin-left: 0.5rem;
+        }
+
+        .ip-check-ok {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+
+        .ip-check-fail {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .soft-fail-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--warning-color);
+        }
+
+        .ok-duration {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.75rem;
+            color: var(--success-color);
+            font-weight: 500;
+        }
+
+        .status-details {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .status-main {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .host-details {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .host-address {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .host-address-main {
+            font-weight: 500;
+        }
+
+        .host-address-alt {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        .enhanced-status-badge {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            align-items: flex-start;
+        }
+    </style>
 </head>
 <body>
     <div id="app" :data-theme="theme" class="app" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
         <!-- Sidebar Overlay for Mobile -->
         <div class="sidebar-overlay" :class="{ active: sidebarOpen }" @click="closeSidebar"></div>
         
-        <!-- Sidebar -->
-        <div class="sidebar" :class="{ 'mobile-open': sidebarOpen, collapsed: sidebarCollapsed }">
-            <button class="sidebar-toggle" @click="toggleSidebarCollapse" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
-                <i :class="sidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"></i>
-            </button>
-            <div class="logo">
-                <h1>
-                    <a :href="webConfig.header_link" target="_blank" rel="noopener noreferrer" class="logo-link" :title="'Visit: ' + webConfig.header_link">
-                        <i class="fas fa-crow"></i>
-                        <span v-if="!sidebarCollapsed">Raven</span>
-                    </a>
-                </h1>
-            </div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a class="nav-link" :class="{ active: currentView === 'dashboard' }" @click="setView('dashboard')">
-                        <i class="fas fa-tachometer-alt"></i>
-                        <span>Dashboard</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" :class="{ active: currentView === 'hosts' }" @click="setView('hosts')">
-                        <i class="fas fa-server"></i>
-                        <span>Hosts</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" :class="{ active: currentView === 'checks' }" @click="setView('checks')">
-                        <i class="fas fa-check-circle"></i>
-                        <span>Checks</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" :class="{ active: currentView === 'alerts' }" @click="setView('alerts')">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <span>Alerts</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" :class="{ active: currentView === 'about' }" @click="setView('about')">
-                        <i class="fas fa-info-circle"></i>
-                        <span>About</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" :class="{ active: currentView === 'settings' }" @click="setView('settings')">
-                        <i class="fas fa-cog"></i>
-                        <span>Settings</span>
-                    </a>
-                </li>
-            </ul>
-        </div>
+        <!-- Sidebar Component -->
+        <sidebar-component 
+            :current-view="currentView"
+            :sidebar-open="sidebarOpen"
+            :sidebar-collapsed="sidebarCollapsed"
+            :web-config="webConfig"
+            @set-view="setView"
+            @toggle-sidebar-collapse="toggleSidebarCollapse">
+        </sidebar-component>
 
         <!-- Main Content -->
         <div class="main-content">
-            <!-- Header -->
-            <div class="header">
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                    <button class="menu-toggle" @click="toggleSidebar" title="Toggle menu">
-                        <i class="fas fa-bars"></i>
-                    </button>
-                    <h1 class="page-title">{{ pageTitle }}</h1>
-                </div>
-                <div class="header-actions">
-                    <div class="connection-status">
-                        <div class="connection-indicator" :class="{ disconnected: !connected }"></div>
-                        {{ connected ? 'Connected' : 'Disconnected' }}
-                    </div>
-                    <button class="theme-toggle" @click="toggleTheme" :title="theme === 'dark' ? 'Light mode' : 'Dark mode'">
-                        <i :class="theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon'"></i>
-                    </button>
-                    <button class="btn btn-primary" v-if="currentView === 'hosts'" @click="openAddHostModal">
-                        <i class="fas fa-plus"></i>
-                        <span class="btn-text">Add Host</span>
-                    </button>
-                </div>
-            </div>
+            <!-- Header Component -->
+            <header-component 
+                :page-title="pageTitle"
+                :connected="connected"
+                :theme="theme"
+                :current-view="currentView"
+                @toggle-sidebar="toggleSidebar"
+                @toggle-theme="toggleTheme"
+                @open-add-host-modal="openAddHostModal">
+            </header-component>
 
             <!-- Dashboard View -->
-            <div v-if="currentView === 'dashboard'">
-                <div class="metrics-grid">
-                    <div class="metric-card">
-                        <div class="metric-header">
-                            <span class="metric-title">Healthy</span>
-                            <div class="metric-icon ok">
-                                <i class="fas fa-check"></i>
-                            </div>
-                        </div>
-                        <div class="metric-value">{{ stats.ok }}</div>
-                        <div class="metric-change">Hosts online</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-header">
-                            <span class="metric-title">Warning</span>
-                            <div class="metric-icon warning">
-                                <i class="fas fa-exclamation-triangle"></i>
-                            </div>
-                        </div>
-                        <div class="metric-value">{{ stats.warning }}</div>
-                        <div class="metric-change">Need attention</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-header">
-                            <span class="metric-title">Critical</span>
-                            <div class="metric-icon critical">
-                                <i class="fas fa-times-circle"></i>
-                            </div>
-                        </div>
-                        <div class="metric-value">{{ stats.critical }}</div>
-                        <div class="metric-change">Require action</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-header">
-                            <span class="metric-title">Unknown</span>
-                            <div class="metric-icon unknown">
-                                <i class="fas fa-question-circle"></i>
-                            </div>
-                        </div>
-                        <div class="metric-value">{{ stats.unknown }}</div>
-                        <div class="metric-change">Status unclear</div>
-                    </div>
-                </div>
-
-                <!-- Recent Activity -->
-                <div class="data-table">
-                    <div class="table-header">
-                        <h3 class="table-title">Recent Activity</h3>
-                    </div>
-                    <div class="table-content">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Time</th>
-                                    <th>Host</th>
-                                    <th>Check</th>
-                                    <th>Status</th>
-                                    <th>Message</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="activity in recentActivity" :key="activity.id">
-                                    <td>{{ formatTime(activity.timestamp) }}</td>
-                                    <td>{{ activity.host }}</td>
-                                    <td>{{ activity.check }}</td>
-                                    <td>
-                                        <span class="status-badge" :class="'status-' + activity.status">
-                                            <div class="status-indicator" :class="'status-' + activity.status"></div>
-                                            {{ activity.status }}
-                                        </span>
-                                    </td>
-                                    <td>{{ activity.message }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+            <dashboard-view 
+                v-if="currentView === 'dashboard'"
+                :stats="stats"
+                :recent-activity="recentActivity">
+            </dashboard-view>
 
             <!-- Hosts View -->
-            <div v-if="currentView === 'hosts'">
-                <div class="data-table">
-                    <div class="table-header">
-                        <h3 class="table-title">Hosts ({{ hosts.length }})</h3>
-                        <div class="search-box">
-                            <input 
-                                v-model="searchQuery" 
-                                class="search-input" 
-                                placeholder="Search hosts..."
-                                type="text"
-                            >
-                            <select v-model="filterGroup" class="form-input" style="width: auto;">
-                                <option value="">All Groups</option>
-                                <option v-for="group in groups" :key="group" :value="group">{{ group }}</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="table-content">
-                        <div v-if="loading" class="loading">
-                            <div class="spinner"></div>
-                            Loading hosts...
-                        </div>
-                        <table v-else>
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Address</th>
-                                    <th>Group</th>
-                                    <th>Status</th>
-                                    <th>Last Check</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="(host, index) in filteredHosts" :key="`${host.id}-${index}`">
-                                    <td>
-                                        <div>
-                                            <div style="font-weight: 500;">{{ host.display_name || host.name }}</div>
-                                            <div style="font-size: 0.875rem; color: var(--text-muted);">{{ host.name }}</div>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div>
-                                            <div>{{ host.ipv4 || host.hostname || 'N/A' }}</div>
-                                            <div v-if="host.ipv4 && host.hostname" style="font-size: 0.875rem; color: var(--text-muted);">
-                                                {{ host.hostname }}
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td>{{ host.group }}</td>
-                                    <td>
-                                        <span class="status-badge" :class="'status-' + host.status">
-                                            <div class="status-indicator" :class="'status-' + host.status"></div>
-                                            {{ host.status }}
-                                        </span>
-                                    </td>
-                                    <td>{{ formatTime(host.last_check) }}</td>
-                                    <td>
-                                        <div class="actions">
-                                            <button class="btn btn-secondary btn-small" @click="editHost(host)">
-                                                <i class="fas fa-edit"></i>
-                                            </button>
-                                            <button class="btn btn-danger btn-small" @click="deleteHost(host)">
-                                                <i class="fas fa-trash"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+            <hosts-view 
+                v-if="currentView === 'hosts'"
+                :hosts="hosts"
+                :loading="loading"
+                :search-query="searchQuery"
+                :filter-group="filterGroup"
+                :groups="groups"
+                :filtered-hosts="filteredHosts"
+                @update:search-query="searchQuery = $event"
+                @update:filter-group="filterGroup = $event"
+                @edit-host="editHost"
+                @delete-host="deleteHost">
+            </hosts-view>
 
             <!-- Checks View -->
-            <div v-if="currentView === 'checks'">
-                <div class="data-table">
-                    <div class="table-header">
-                        <h3 class="table-title">Checks ({{ checks.length }})</h3>
-                        <div class="search-box">
-                            <input 
-                                v-model="searchChecksQuery" 
-                                class="search-input" 
-                                placeholder="Search checks..."
-                                type="text"
-                            >
-                            <select v-model="filterCheckType" class="form-input" style="width: auto;">
-                                <option value="">All Types</option>
-                                <option v-for="type in checkTypes" :key="type" :value="type">{{ type }}</option>
-                            </select>
-                            <button class="btn btn-primary" @click="openAddCheckModal">
-                                <i class="fas fa-plus"></i>
-                                <span class="btn-text">Add Check</span>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="table-content">
-                        <div v-if="loading" class="loading">
-                            <div class="spinner"></div>
-                            Loading checks...
-                        </div>
-                        
-                        <div v-else-if="checks.length === 0" style="padding: 1rem; background: var(--light-bg); margin: 1rem; border-radius: 0.5rem;">
-                            <h4>No checks configured</h4>
-                            <p>Click "Add Check" to create your first monitoring check.</p>
-                        </div>
-                        
-                        <table v-else>
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Type</th>
-                                    <th>Hosts</th>
-                                    <th>Interval</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="(check, index) in filteredChecks" :key="`${check.id || index}-${index}`">
-                                    <td>
-                                        <div>
-                                            <div style="font-weight: 500;">{{ check.name || 'Unnamed Check' }}</div>
-                                            <div style="font-size: 0.875rem; color: var(--text-muted);">{{ check.id || 'No ID' }}</div>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <span class="status-badge" style="background: var(--light-bg); color: var(--text-primary);">
-                                            {{ check.type || 'Unknown' }}
-                                        </span>
-                                    </td>
-                                    <td>{{ (check.hosts && check.hosts.length) || 0 }} hosts</td>
-                                    <td>
-                                        <div style="font-size: 0.875rem;">
-                                            <div>OK: {{ (check.interval && check.interval.ok) || 'N/A' }}</div>
-                                            <div>Critical: {{ (check.interval && check.interval.critical) || 'N/A' }}</div>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <span v-if="check.enabled" class="status-badge status-ok">
-                                            <div class="status-indicator status-ok"></div>
-                                            Enabled
-                                        </span>
-                                        <span v-else class="status-badge status-unknown">
-                                            <div class="status-indicator status-unknown"></div>
-                                            Disabled
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <div class="actions">
-                                            <button class="btn btn-secondary btn-small" @click="editCheck(check)">
-                                                <i class="fas fa-edit"></i>
-                                            </button>
-                                            <button class="btn btn-danger btn-small" @click="deleteCheck(check)">
-                                                <i class="fas fa-trash"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+            <checks-view 
+                v-if="currentView === 'checks'"
+                :checks="checks"
+                :loading="loading"
+                :search-checks-query="searchChecksQuery"
+                :filter-check-type="filterCheckType"
+                :check-types="checkTypes"
+                :filtered-checks="filteredChecks"
+                @update:search-checks-query="searchChecksQuery = $event"
+                @update:filter-check-type="filterCheckType = $event"
+                @open-add-check-modal="openAddCheckModal"
+                @edit-check="editCheck"
+                @delete-check="deleteCheck">
+            </checks-view>
 
             <!-- Alerts View -->
-            <div v-if="currentView === 'alerts'">
-                <div class="metrics-grid" style="margin-bottom: 1rem;">
-                    <div class="metric-card">
-                        <div class="metric-header">
-                            <span class="metric-title">Active Alerts</span>
-                            <div class="metric-icon critical">
-                                <i class="fas fa-exclamation-triangle"></i>
-                            </div>
-                        </div>
-                        <div class="metric-value">{{ alertMetrics.active }}</div>
-                        <div class="metric-change">Requiring attention</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-header">
-                            <span class="metric-title">Critical</span>
-                            <div class="metric-icon critical">
-                                <i class="fas fa-times-circle"></i>
-                            </div>
-                        </div>
-                        <div class="metric-value">{{ alertMetrics.critical }}</div>
-                        <div class="metric-change">High priority</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-header">
-                            <span class="metric-title">Warnings</span>
-                            <div class="metric-icon warning">
-                                <i class="fas fa-exclamation-triangle"></i>
-                            </div>
-                        </div>
-                        <div class="metric-value">{{ alertMetrics.warning }}</div>
-                        <div class="metric-change">Medium priority</div>
-                    </div>
-                </div>
-
-                <div class="data-table">
-                    <div class="table-header">
-                        <h3 class="table-title">Active Alerts</h3>
-                        <div class="search-box">
-                            <select v-model="alertFilter" class="form-input" style="width: auto;">
-                                <option value="all">All Alerts</option>
-                                <option value="critical">Critical Only</option>
-                                <option value="warning">Warning Only</option>
-                                <option value="unknown">Unknown Only</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="table-content">
-                        <div v-if="loading" class="loading">
-                            <div class="spinner"></div>
-                            Loading alerts...
-                        </div>
-                        
-                        <div v-else-if="alerts.length === 0" class="loading">
-                            <i class="fas fa-check-circle" style="color: var(--success-color); font-size: 2rem; margin-right: 1rem;"></i>
-                            No active alerts - all systems healthy!
-                        </div>
-                        
-                        <table v-else>
-                            <thead>
-                                <tr>
-                                    <th>Time</th>
-                                    <th>Severity</th>
-                                    <th>Host</th>
-                                    <th>Check</th>
-                                    <th>Message</th>
-                                    <th>Duration</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="alert in filteredAlerts" :key="alert.id">
-                                    <td>{{ formatTime(alert.timestamp) }}</td>
-                                    <td>
-                                        <span class="status-badge" :class="'status-' + alert.severity">
-                                            <div class="status-indicator" :class="'status-' + alert.severity"></div>
-                                            {{ alert.severity.toUpperCase() }}
-                                        </span>
-                                    </td>
-                                    <td>{{ alert.host }}</td>
-                                    <td>{{ alert.check }}</td>
-                                    <td>{{ alert.message }}</td>
-                                    <td>{{ formatDuration(alert.duration) }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+            <alerts-view 
+                v-if="currentView === 'alerts'"
+                :alerts="alerts"
+                :loading="loading"
+                :alert-metrics="alertMetrics"
+                :alert-filter="alertFilter"
+                :filtered-alerts="filteredAlerts"
+                @update:alert-filter="alertFilter = $event">
+            </alerts-view>
 
             <!-- About View -->
-            <div v-if="currentView === 'about'">
-                <div class="data-table">
-                    <div class="table-header">
-                        <h3 class="table-title">About Raven</h3>
-                    </div>
-                    <div style="padding: 2rem;">
-                        <div v-if="loadingBuildInfo" class="loading">
-                            <div class="spinner"></div>
-                            Loading build information...
-                        </div>
-                        
-                        <div v-else>
-                            <div style="text-align: center; margin-bottom: 2rem;">
-                                <div style="font-size: 3rem; color: var(--primary-color); margin-bottom: 1rem;">
-                                    <i class="fas fa-crow"></i>
-                                </div>
-                                <h2 style="margin-bottom: 0.5rem;">Raven Network Monitoring</h2>
-                                <p style="color: var(--text-muted); font-size: 1.125rem;">
-                                    Advanced network monitoring and alerting system
-                                </p>
-                                <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 1rem;">
-                                    Visit: <a :href="webConfig.header_link" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">{{ webConfig.header_link }}</a>
-                                </p>
-                            </div>
-
-                            <div class="metrics-grid" style="margin-bottom: 2rem;">
-                                <div class="metric-card">
-                                    <div class="metric-header">
-                                        <span class="metric-title">Version</span>
-                                        <div class="metric-icon" style="background: #e0f2fe; color: #0277bd;">
-                                            <i class="fas fa-tag"></i>
-                                        </div>
-                                    </div>
-                                    <div class="metric-value" style="font-size: 1.5rem;">{{ buildInfo.version }}</div>
-                                    <div class="metric-change">Current release</div>
-                                </div>
-                                
-                                <div class="metric-card">
-                                    <div class="metric-header">
-                                        <span class="metric-title">Git Commit</span>
-                                        <div class="metric-icon" style="background: #fce4ec; color: #c2185b;">
-                                            <i class="fab fa-git-alt"></i>
-                                        </div>
-                                    </div>
-                                    <div class="metric-value" style="font-size: 1rem; font-family: monospace;">
-                                        {{ buildInfo.git_commit ? buildInfo.git_commit.substring(0, 8) : 'unknown' }}
-                                    </div>
-                                    <div class="metric-change">{{ buildInfo.git_branch || 'unknown' }} branch</div>
-                                </div>
-                                
-                                <div class="metric-card">
-                                    <div class="metric-header">
-                                        <span class="metric-title">Build Time</span>
-                                        <div class="metric-icon" style="background: #e8f5e9; color: #2e7d32;">
-                                            <i class="fas fa-clock"></i>
-                                        </div>
-                                    </div>
-                                    <div class="metric-value" style="font-size: 0.875rem;">{{ formatBuildTime(buildInfo.build_time) }}</div>
-                                    <div class="metric-change">Compilation date</div>
-                                </div>
-                                
-                                <div class="metric-card">
-                                    <div class="metric-header">
-                                        <span class="metric-title">Go Version</span>
-                                        <div class="metric-icon" style="background: #e3f2fd; color: #1976d2;">
-                                            <i class="fab fa-golang"></i>
-                                        </div>
-                                    </div>
-                                    <div class="metric-value" style="font-size: 1.25rem;">{{ buildInfo.go_version || 'unknown' }}</div>
-                                    <div class="metric-change">{{ buildInfo.go_os }}/{{ buildInfo.go_arch }}</div>
-                                </div>
-                            </div>
-
-                            <!-- Build Details -->
-                            <div class="data-table" style="margin-bottom: 2rem;">
-                                <div class="table-header">
-                                    <h4 class="table-title">Build Details</h4>
-                                </div>
-                                <div class="table-content">
-                                    <table>
-                                        <tbody>
-                                            <tr>
-                                                <td style="font-weight: 600; width: 200px;">Operating System</td>
-                                                <td>{{ buildInfo.go_os || 'unknown' }}</td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight: 600;">Architecture</td>
-                                                <td>{{ buildInfo.go_arch || 'unknown' }}</td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight: 600;">CGO Enabled</td>
-                                                <td>
-                                                    <span :class="buildInfo.cgo_enabled === 'true' ? 'status-badge status-ok' : 'status-badge status-unknown'">
-                                                        {{ buildInfo.cgo_enabled === 'true' ? 'Yes' : 'No' }}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight: 600;">Build Flags</td>
-                                                <td style="font-family: monospace; font-size: 0.875rem;">
-                                                    {{ buildInfo.build_flags || 'none' }}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight: 600;">Git Branch</td>
-                                                <td>
-                                                    <span class="status-badge" style="background: var(--light-bg); color: var(--text-primary);">
-                                                        {{ buildInfo.git_branch || 'unknown' }}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight: 600;">Full Git Commit</td>
-                                                <td style="font-family: monospace; font-size: 0.875rem;">
-                                                    {{ buildInfo.git_commit || 'unknown' }}
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <!-- Dependencies -->
-                            <div class="data-table">
-                                <div class="table-header">
-                                    <h4 class="table-title">Go Modules & Dependencies</h4>
-                                </div>
-                                <div class="table-content">
-                                    <table>
-                                        <thead>
-                                            <tr>
-                                                <th>Module</th>
-                                                <th>Version</th>
-                                                <th>Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr v-for="module in buildInfo.modules" :key="module.path">
-                                                <td style="font-family: monospace; font-size: 0.875rem;">
-                                                    {{ module.path }}
-                                                </td>
-                                                <td>
-                                                    <span class="status-badge" style="background: var(--light-bg); color: var(--text-primary);">
-                                                        {{ module.version }}
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <span v-if="module.replace" class="status-badge status-warning">
-                                                        <i class="fas fa-exchange-alt"></i> Replaced
-                                                    </span>
-                                                    <span v-else class="status-badge status-ok">
-                                                        <i class="fas fa-check"></i> Direct
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <!-- Footer -->
-                            <div style="text-align: center; margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--border-color); color: var(--text-muted);">
-                                <p>
-                                    <i class="fas fa-heart" style="color: var(--danger-color);"></i>
-                                    Built with Go and Vue.js
-                                </p>
-                                <p style="font-size: 0.875rem; margin-top: 0.5rem;">
-                                    © 2024 Raven Network Monitoring System
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <about-view 
+                v-if="currentView === 'about'"
+                :build-info="buildInfo"
+                :loading-build-info="loadingBuildInfo"
+                :web-config="webConfig">
+            </about-view>
 
             <!-- Settings View -->
-            <div v-if="currentView === 'settings'">
-                <div class="data-table">
-                    <div class="table-header">
-                        <h3 class="table-title">System Settings</h3>
-                    </div>
-                    <div style="padding: 2rem;">
-                        <div class="form-group">
-                            <h4>Web Interface</h4>
-                            <label class="form-checkbox">
-                                <input v-model="settings.darkMode" type="checkbox" @change="toggleTheme">
-                                <span>Dark Mode</span>
-                            </label>
-                        </div>
-                        
-                        <div class="form-group">
-                            <h4>Refresh Settings</h4>
-                            <label class="form-label">Auto-refresh interval (seconds)</label>
-                            <input v-model="settings.refreshInterval" class="form-input" type="number" min="10" max="300" style="width: 200px;">
-                        </div>
-
-                        <div class="form-group">
-                            <h4>System Information</h4>
-                            <div style="background: var(--light-bg); padding: 1rem; border-radius: 0.5rem;">
-                                <div><strong>Version:</strong> {{ buildInfo.version || 'Raven v2.0.0' }}</div>
-                                <div><strong>API Status:</strong> <span style="color: var(--success-color);">✓ Connected</span></div>
-                                <div><strong>WebSocket:</strong> 
-                                    <span :style="{ color: connected ? 'var(--success-color)' : 'var(--danger-color)' }">
-                                        {{ connected ? '✓ Connected' : '✗ Disconnected' }}
-                                    </span>
-                                </div>
-                                <div><strong>Header Link:</strong> <a :href="webConfig.header_link" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">{{ webConfig.header_link }}</a></div>
-
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <h4>Actions</h4>
-                            <div style="display: flex; gap: 1rem;">
-                                <button class="btn btn-secondary" @click="exportConfig">
-                                    <i class="fas fa-download"></i>
-                                    Export Configuration
-                                </button>
-                                <button class="btn btn-secondary" @click="refreshData">
-                                    <i class="fas fa-sync"></i>
-                                    Refresh All Data
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <settings-view 
+                v-if="currentView === 'settings'"
+                :settings="settings"
+                :connected="connected"
+                :build-info="buildInfo"
+                :web-config="webConfig"
+                @toggle-theme="toggleTheme"
+                @export-config="exportConfig"
+                @refresh-data="refreshData">
+            </settings-view>
         </div>
 
         <!-- Host Modal -->
-        <div class="modal-overlay" :class="{ active: showHostModal }" @click.self="closeHostModal">
-            <div class="modal">
-                <div class="modal-header">
-                    <h3 class="modal-title">{{ editingHost ? 'Edit Host' : 'Add Host' }}</h3>
-                    <button class="close-btn" @click="closeHostModal">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <form @submit.prevent="saveHost">
-                    <div class="form-group">
-                        <label class="form-label">Name *</label>
-                        <input 
-                            v-model="hostForm.name" 
-                            class="form-input" 
-                            type="text" 
-                            required
-                            placeholder="e.g., web-server-01"
-                        >
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Display Name</label>
-                        <input 
-                            v-model="hostForm.display_name" 
-                            class="form-input" 
-                            type="text"
-                            placeholder="e.g., Web Server 1"
-                        >
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">IP Address</label>
-                        <input 
-                            v-model="hostForm.ipv4" 
-                            class="form-input" 
-                            type="text"
-                        >
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Hostname</label>
-                        <input 
-                            v-model="hostForm.hostname" 
-                            class="form-input" 
-                            type="text"
-                            placeholder="e.g., web01.example.com"
-                        >
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Group</label>
-                        <input 
-                            v-model="hostForm.group" 
-                            class="form-input" 
-                            type="text"
-                            placeholder="e.g., servers"
-                        >
-                    </div>
-                    <div class="form-group">
-                        <label class="form-checkbox">
-                            <input v-model="hostForm.enabled" type="checkbox">
-                            <span>Enabled</span>
-                        </label>
-                    </div>
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-secondary" @click="closeHostModal">Cancel</button>
-                        <button type="submit" class="btn btn-primary" :disabled="saving">
-                            {{ saving ? 'Saving...' : 'Save' }}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
+        <host-modal 
+            :show="showHostModal"
+            :editing="editingHost"
+            :form="hostForm"
+            :saving="saving"
+            @close="closeHostModal"
+            @save="saveHost">
+        </host-modal>
 
         <!-- Check Modal -->
-        <div class="modal-overlay" :class="{ active: showCheckModal }" @click.self="closeCheckModal">
-            <div class="modal">
-                <div class="modal-header">
-                    <h3 class="modal-title">{{ editingCheck ? 'Edit Check' : 'Add Check' }}</h3>
-                    <button class="close-btn" @click="closeCheckModal">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <form @submit.prevent="saveCheck">
-                    <div class="form-group">
-                        <label class="form-label">Name *</label>
-                        <input 
-                            v-model="checkForm.name" 
-                            class="form-input" 
-                            type="text" 
-                            required
-                            placeholder="e.g., Ping Check"
-                        >
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Type *</label>
-                        <select v-model="checkForm.type" class="form-input" required>
-                            <option value="ping">Ping</option>
-                            <option value="nagios">Nagios Plugin</option>
-                            <option value="http">HTTP</option>
-                            <option value="https">HTTPS</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Hosts *</label>
-                        <select v-model="checkForm.hosts" class="form-input" multiple size="4" required>
-                            <option v-for="host in hosts" :key="host.id" :value="host.id">
-                                {{ host.display_name || host.name }} ({{ host.ipv4 || host.hostname }})
-                            </option>
-                        </select>
-                        <small style="color: var(--text-muted);">Hold Ctrl/Cmd to select multiple hosts</small>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Check Intervals</label>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                            <div>
-                                <label class="form-label" style="font-size: 0.875rem;">OK</label>
-                                <input v-model="checkForm.interval.ok" class="form-input" placeholder="5m">
-                            </div>
-                            <div>
-                                <label class="form-label" style="font-size: 0.875rem;">Warning</label>
-                                <input v-model="checkForm.interval.warning" class="form-input" placeholder="2m">
-                            </div>
-                            <div>
-                                <label class="form-label" style="font-size: 0.875rem;">Critical</label>
-                                <input v-model="checkForm.interval.critical" class="form-input" placeholder="1m">
-                            </div>
-                            <div>
-                                <label class="form-label" style="font-size: 0.875rem;">Unknown</label>
-                                <input v-model="checkForm.interval.unknown" class="form-input" placeholder="1m">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Threshold</label>
-                        <input 
-                            v-model="checkForm.threshold" 
-                            class="form-input" 
-                            type="number"
-                            min="1"
-                            max="10"
-                            placeholder="3"
-                        >
-                        <small style="color: var(--text-muted);">Number of consecutive failures before status change</small>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Timeout</label>
-                        <input 
-                            v-model="checkForm.timeout" 
-                            class="form-input" 
-                            type="text"
-                            placeholder="30s"
-                        >
-                    </div>
-                    <div class="form-group">
-                        <label class="form-checkbox">
-                            <input v-model="checkForm.enabled" type="checkbox">
-                            <span>Enabled</span>
-                        </label>
-                    </div>
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-secondary" @click="closeCheckModal">Cancel</button>
-                        <button type="submit" class="btn btn-primary" :disabled="saving">
-                            {{ saving ? 'Saving...' : 'Save' }}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
+        <check-modal 
+            :show="showCheckModal"
+            :editing="editingCheck"
+            :form="checkForm"
+            :hosts="hosts"
+            :saving="saving"
+            @close="closeCheckModal"
+            @save="saveCheck">
+        </check-modal>
 
         <!-- Notification -->
-        <div v-if="notification.show" class="notification" :class="[notification.type, { show: notification.show }]">
-            {{ notification.message }}
-        </div>
+        <notification-component :notification="notification"></notification-component>
     </div>
 
-    <script>
-        const { createApp } = Vue;
+    <!-- Load utility functions first -->
+    <script src="js/utils.js"></script>
+    <script src="js/api.js"></script>
 
-        createApp({
-            data() {
-                return {
-                    currentView: 'dashboard',
-                    theme: localStorage.getItem('theme') || 'light',
-                    sidebarOpen: false,
-                    sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === 'true',
-                    connected: false,
-                    loading: false,
-                    loadingBuildInfo: false,
-                    saving: false,
-                    searchQuery: '',
-                    filterGroup: '',
-                    searchChecksQuery: '',
-                    filterCheckType: '',
-                    alertFilter: 'all',
-                    showHostModal: false,
-                    showCheckModal: false,
-                    editingHost: null,
-                    editingCheck: null,
-                    hosts: [],
-                    checks: [],
-                    alerts: [],
-                    stats: {
-                        ok: 0,
-                        warning: 0,
-                        critical: 0,
-                        unknown: 0
-                    },
-                    recentActivity: [],
-                    buildInfo: {
-                        version: 'Loading...',
-                        git_commit: '',
-                        git_branch: '',
-                        build_time: '',
-                        go_version: '',
-                        go_os: '',
-                        go_arch: '',
-                        cgo_enabled: '',
-                        build_flags: '',
-                        modules: []
-                    },
-                    webConfig: {
-                        header_link: 'https://github.com/John-MustangGT/raven2',  // Default fallback
-                        serve_static: false,
-                        root: 'index.html'
-                    },
-                    hostForm: this.getEmptyHostForm(),
-                    checkForm: this.getEmptyCheckForm(),
-                    settings: {
-                        darkMode: localStorage.getItem('theme') === 'dark',
-                        refreshInterval: 30
-                    },
-                    notification: {
-                        show: false,
-                        type: '',
-                        message: ''
-                    },
-                    websocket: null
-                }
-            },
-            computed: {
-                pageTitle() {
-                    const titles = {
-                        dashboard: 'Dashboard',
-                        hosts: 'Hosts',
-                        checks: 'Checks',
-                        alerts: 'Alerts',
-                        about: 'About',
-                        settings: 'Settings'
-                    };
-                    return titles[this.currentView] || 'Dashboard';
-                },
-                filteredHosts() {
-                    return this.hosts.filter(host => {
-                        const matchesSearch = !this.searchQuery || 
-                            host.name.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
-                            (host.display_name && host.display_name.toLowerCase().includes(this.searchQuery.toLowerCase())) ||
-                            (host.ipv4 && host.ipv4.includes(this.searchQuery)) ||
-                            (host.hostname && host.hostname.toLowerCase().includes(this.searchQuery.toLowerCase()));
-                        
-                        const matchesGroup = !this.filterGroup || host.group === this.filterGroup;
-                        
-                        return matchesSearch && matchesGroup;
-                    });
-                },
-                groups() {
-                    const groups = [...new Set(this.hosts.map(host => host.group))];
-                    return groups.filter(Boolean).sort();
-                },
-                filteredChecks() {
-                    return this.checks.filter(check => {
-                        const matchesSearch = !this.searchChecksQuery || 
-                            check.name.toLowerCase().includes(this.searchChecksQuery.toLowerCase()) ||
-                            (check.id && check.id.toLowerCase().includes(this.searchChecksQuery.toLowerCase())) ||
-                            check.type.toLowerCase().includes(this.searchChecksQuery.toLowerCase());
-                        
-                        const matchesType = !this.filterCheckType || check.type === this.filterCheckType;
-                        
-                        return matchesSearch && matchesType;
-                    });
-                },
-                checkTypes() {
-                    const types = [...new Set(this.checks.map(check => check.type))];
-                    return types.filter(Boolean).sort();
-                },
-                activeAlerts() {
-                    return this.alerts.filter(alert => alert.severity !== 'ok');
-                },
-                alertMetrics() {
-                    return {
-                        active: this.activeAlerts.length,
-                        critical: this.alerts.filter(alert => alert.severity === 'critical').length,
-                        warning: this.alerts.filter(alert => alert.severity === 'warning').length
-                    };
-                },
-                filteredAlerts() {
-                    if (this.alertFilter === 'all') {
-                        return this.activeAlerts;
-                    }
-                    return this.alerts.filter(alert => alert.severity === this.alertFilter);
-                }
-            },
-            mounted() {
-                document.documentElement.setAttribute('data-theme', this.theme);
-                this.loadWebConfig();  // Load web configuration first
-                this.loadHosts();
-                this.connectWebSocket();
-                this.loadStats();
-                
-                // Auto-refresh data
-                setInterval(() => {
-                    this.loadStats();
-                    if (this.currentView === 'hosts') {
-                        this.loadHosts();
-                    } else if (this.currentView === 'checks') {
-                        this.loadChecks();
-                    } else if (this.currentView === 'alerts') {
-                        this.loadAlerts();
-                    }
-                }, this.settings.refreshInterval * 1000);
+    <!-- Load all components -->
+    <script src="js/components/sidebar.js"></script>
+    <script src="js/components/header.js"></script>
+    <script src="js/components/dashboard-view.js"></script>
+    <script src="js/components/hosts-view.js"></script>
+    <script src="js/components/checks-view.js"></script>
+    <script src="js/components/alerts-view.js"></script>
+    <script src="js/components/about-view.js"></script>
+    <script src="js/components/settings-view.js"></script>
+    <script src="js/components/host-modal.js"></script>
+    <script src="js/components/check-modal.js"></script>
+    <script src="js/components/notification.js"></script>
 
-                // Close sidebar when clicking outside on mobile
-                document.addEventListener('click', (e) => {
-                    if (window.innerWidth <= 1024 && this.sidebarOpen) {
-                        const sidebar = document.querySelector('.sidebar');
-                        const menuToggle = document.querySelector('.menu-toggle');
-                        if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
-                            this.sidebarOpen = false;
-                        }
-                    }
-                });
-            },
-            methods: {
-                // Load web configuration from server
-                async loadWebConfig() {
-                    try {
-                        const response = await axios.get('/api/web-config');
-                        this.webConfig = response.data.data;
-                    } catch (error) {
-                        console.error('Failed to load web config:', error);
-                        // Keep default fallback values if config fails to load
-                    }
-                },
-                getEmptyHostForm() {
-                    return {
-                        name: '',
-                        display_name: '',
-                        ipv4: '',
-                        hostname: '',
-                        group: 'default',
-                        enabled: true
-                    };
-                },
-                getEmptyCheckForm() {
-                    return {
-                        name: '',
-                        type: 'ping',
-                        hosts: [],
-                        interval: {
-                            ok: '5m',
-                            warning: '2m',
-                            critical: '1m',
-                            unknown: '1m'
-                        },
-                        threshold: 3,
-                        timeout: '30s',
-                        enabled: true,
-                        options: {}
-                    };
-                },
-                setView(view) {
-                    this.currentView = view;
-                    this.closeSidebar();
-                    
-                    if (view === 'hosts') {
-                        this.loadHosts();
-                    } else if (view === 'checks') {
-                        this.loadChecks();
-                    } else if (view === 'alerts') {
-                        this.loadAlerts();
-                    } else if (view === 'about') {
-                        this.loadBuildInfo();
-                    }
-                },
-                async loadBuildInfo() {
-                    this.loadingBuildInfo = true;
-                    try {
-                        const response = await axios.get('/api/build-info');
-                        this.buildInfo = response.data.data;
-                    } catch (error) {
-                        console.error('Failed to load build info:', error);
-                        this.showNotification('error', 'Failed to load build information');
-                    } finally {
-                        this.loadingBuildInfo = false;
-                    }
-                },
-                formatBuildTime(buildTime) {
-                    if (!buildTime || buildTime === 'unknown') return 'Unknown';
-                    try {
-                        return new Date(buildTime).toLocaleString();
-                    } catch {
-                        return buildTime;
-                    }
-                },
-                async loadChecks() {
-                    this.loading = true;
-                    try {
-                        const response = await axios.get('/api/checks');
-                        console.log('Checks API response:', response.data);
-                        this.checks = response.data.data || [];
-                    } catch (error) {
-                        console.error('Failed to load checks:', error);
-                        this.showNotification('error', 'Failed to load checks');
-                    } finally {
-                        this.loading = false;
-                    }
-                },
-                async loadAlerts() {
-                    this.loading = true;
-                    try {
-                        const response = await axios.get('/api/status?limit=100');
-                        const statuses = response.data.data || [];
-                        
-                        this.alerts = statuses
-                            .filter(status => status.exit_code > 0)
-                            .map(status => ({
-                                id: status.id || `${status.host_id}-${status.check_id}`,
-                                timestamp: status.timestamp,
-                                severity: this.getStatusName(status.exit_code),
-                                host: status.host_id,
-                                check: status.check_id,
-                                message: status.output || 'No message',
-                                duration: this.calculateDuration(status.timestamp)
-                            }))
-                            .sort((a, b) => {
-                                const severityOrder = { critical: 3, warning: 2, unknown: 1 };
-                                const aSev = severityOrder[a.severity] || 0;
-                                const bSev = severityOrder[b.severity] || 0;
-                                
-                                if (aSev !== bSev) return bSev - aSev;
-                                return new Date(b.timestamp) - new Date(a.timestamp);
-                            });
-                            
-                    } catch (error) {
-                        console.error('Failed to load alerts:', error);
-                        this.showNotification('error', 'Failed to load alerts');
-                    } finally {
-                        this.loading = false;
-                    }
-                },
-                calculateDuration(timestamp) {
-                    if (!timestamp) return 0;
-                    return Date.now() - new Date(timestamp).getTime();
-                },
-                formatDuration(duration) {
-                    if (!duration) return 'Just now';
-                    
-                    const seconds = Math.floor(duration / 1000);
-                    const minutes = Math.floor(seconds / 60);
-                    const hours = Math.floor(minutes / 60);
-                    const days = Math.floor(hours / 24);
-                    
-                    if (days > 0) return `${days}d ${hours % 24}h`;
-                    if (hours > 0) return `${hours}h ${minutes % 60}m`;
-                    if (minutes > 0) return `${minutes}m`;
-                    return `${seconds}s`;
-                },
-                openAddCheckModal() {
-                    this.editingCheck = null;
-                    this.checkForm = this.getEmptyCheckForm();
-                    this.showCheckModal = true;
-                },
-                editCheck(check) {
-                    this.editingCheck = check;
-                    this.checkForm = {
-                        name: check.name,
-                        type: check.type,
-                        hosts: check.hosts || [],
-                        interval: check.interval || {},
-                        threshold: check.threshold || 3,
-                        timeout: check.timeout || '30s',
-                        enabled: check.enabled,
-                        options: check.options || {}
-                    };
-                    this.showCheckModal = true;
-                },
-                closeCheckModal() {
-                    this.showCheckModal = false;
-                    this.editingCheck = null;
-                    this.checkForm = this.getEmptyCheckForm();
-                },
-                async saveCheck() {
-                    this.saving = true;
-                    try {
-                        const data = { ...this.checkForm };
-                        
-                        if (this.editingCheck) {
-                            await axios.put(`/api/checks/${this.editingCheck.id}`, data);
-                            this.showNotification('success', 'Check updated successfully');
-                        } else {
-                            await axios.post('/api/checks', data);
-                            this.showNotification('success', 'Check created successfully');
-                        }
-                        
-                        this.closeCheckModal();
-                        this.loadChecks();
-                    } catch (error) {
-                        console.error('Failed to save check:', error);
-                        this.showNotification('error', 'Failed to save check');
-                    } finally {
-                        this.saving = false;
-                    }
-                },
-                async deleteCheck(check) {
-                    if (!confirm(`Are you sure you want to delete the check "${check.name}"?`)) {
-                        return;
-                    }
-                    
-                    try {
-                        await axios.delete(`/api/checks/${check.id}`);
-                        this.showNotification('success', 'Check deleted successfully');
-                        this.loadChecks();
-                    } catch (error) {
-                        console.error('Failed to delete check:', error);
-                        this.showNotification('error', 'Failed to delete check');
-                    }
-                },
-                exportConfig() {
-                    this.showNotification('info', 'Configuration export not implemented yet');
-                },
-                refreshData() {
-                    this.loadStats();
-                    this.loadWebConfig(); // Also refresh web config
-                    if (this.currentView === 'hosts') {
-                        this.loadHosts();
-                    } else if (this.currentView === 'checks') {
-                        this.loadChecks();
-                    } else if (this.currentView === 'alerts') {
-                        this.loadAlerts();
-                    }
-                    this.showNotification('success', 'Data refreshed');
-                },
-                toggleSidebar() {
-                    this.sidebarOpen = !this.sidebarOpen;
-                },
-                closeSidebar() {
-                    this.sidebarOpen = false;
-                },
-                toggleSidebarCollapse() {
-                    this.sidebarCollapsed = !this.sidebarCollapsed;
-                    localStorage.setItem('sidebarCollapsed', this.sidebarCollapsed.toString());
-                },
-                toggleTheme() {
-                    this.theme = this.theme === 'light' ? 'dark' : 'light';
-                    localStorage.setItem('theme', this.theme);
-                    document.documentElement.setAttribute('data-theme', this.theme);
-                    this.settings.darkMode = this.theme === 'dark';
-                },
-                async loadHosts() {
-                    this.loading = true;
-                    try {
-                        const response = await axios.get('/api/hosts');
-                        console.log('Hosts API response:', response.data);
-                        this.hosts = response.data.data || [];
-                        console.log('Processed hosts:', this.hosts);
-                    } catch (error) {
-                        console.error('Failed to load hosts:', error);
-                        this.showNotification('error', 'Failed to load hosts');
-                    } finally {
-                        this.loading = false;
-                    }
-                },
-                async loadStats() {
-                    try {
-                        const response = await axios.get('/api/status');
-                        const statuses = response.data.data || [];
-                        
-                        this.stats = {
-                            ok: statuses.filter(s => s.exit_code === 0).length,
-                            warning: statuses.filter(s => s.exit_code === 1).length,
-                            critical: statuses.filter(s => s.exit_code === 2).length,
-                            unknown: statuses.filter(s => s.exit_code === 3).length
-                        };
-
-                        this.recentActivity = statuses
-                            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                            .slice(0, 10)
-                            .map(status => ({
-                                id: status.id,
-                                timestamp: status.timestamp,
-                                host: status.host_id,
-                                check: status.check_id,
-                                status: this.getStatusName(status.exit_code),
-                                message: status.output
-                            }));
-                    } catch (error) {
-                        console.error('Failed to load stats:', error);
-                    }
-                },
-                getStatusName(exitCode) {
-                    switch (exitCode) {
-                        case 0: return 'ok';
-                        case 1: return 'warning';
-                        case 2: return 'critical';
-                        default: return 'unknown';
-                    }
-                },
-                openAddHostModal() {
-                    this.editingHost = null;
-                    this.hostForm = this.getEmptyHostForm();
-                    this.showHostModal = true;
-                },
-                editHost(host) {
-                    this.editingHost = host;
-                    this.hostForm = {
-                        name: host.name,
-                        display_name: host.display_name || '',
-                        ipv4: host.ipv4 || '',
-                        hostname: host.hostname || '',
-                        group: host.group || '',
-                        enabled: host.enabled
-                    };
-                    this.showHostModal = true;
-                },
-                closeHostModal() {
-                    this.showHostModal = false;
-                    this.editingHost = null;
-                    this.hostForm = this.getEmptyHostForm();
-                },
-                async saveHost() {
-                    this.saving = true;
-                    try {
-                        const data = { ...this.hostForm };
-                        
-                        if (this.editingHost) {
-                            await axios.put(`/api/hosts/${this.editingHost.id}`, data);
-                            this.showNotification('success', 'Host updated successfully');
-                        } else {
-                            await axios.post('/api/hosts', data);
-                            this.showNotification('success', 'Host created successfully');
-                        }
-                        
-                        this.closeHostModal();
-                        this.loadHosts();
-                    } catch (error) {
-                        console.error('Failed to save host:', error);
-                        this.showNotification('error', 'Failed to save host');
-                    } finally {
-                        this.saving = false;
-                    }
-                },
-                async deleteHost(host) {
-                    if (!confirm(`Are you sure you want to delete ${host.name}?`)) {
-                        return;
-                    }
-                    
-                    try {
-                        await axios.delete(`/api/hosts/${host.id}`);
-                        this.showNotification('success', 'Host deleted successfully');
-                        this.loadHosts();
-                    } catch (error) {
-                        console.error('Failed to delete host:', error);
-                        this.showNotification('error', 'Failed to delete host');
-                    }
-                },
-                showNotification(type, message) {
-                    this.notification = { show: true, type, message };
-                    setTimeout(() => {
-                        this.notification.show = false;
-                    }, 5000);
-                },
-                formatTime(timestamp) {
-                    if (!timestamp) return 'Never';
-                    return new Date(timestamp).toLocaleString();
-                },
-                connectWebSocket() {
-                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                    const wsUrl = `${protocol}//${window.location.host}/ws`;
-                    
-                    this.websocket = new WebSocket(wsUrl);
-                    
-                    this.websocket.onopen = () => {
-                        this.connected = true;
-                        console.log('WebSocket connected');
-                    };
-                    
-                    this.websocket.onmessage = (event) => {
-                        const message = JSON.parse(event.data);
-                        if (message.type === 'status_update') {
-                            this.loadStats();
-                            if (this.currentView === 'hosts') {
-                                this.loadHosts();
-                            }
-                        }
-                    };
-                    
-                    this.websocket.onclose = () => {
-                        this.connected = false;
-                        console.log('WebSocket disconnected');
-                        setTimeout(() => this.connectWebSocket(), 5000);
-                    };
-                    
-                    this.websocket.onerror = (error) => {
-                        console.error('WebSocket error:', error);
-                        this.connected = false;
-                    };
-                }
-            }
-        }).mount('#app');
-    </script>
+    <!-- Load main app last -->
+    <script src="js/app.js"></script>
 </body>
 </html>
-

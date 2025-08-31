@@ -3,6 +3,8 @@ package web
 
 import (
     "context"
+    "fmt"
+    "net"
     "net/http"
     "strconv"
     "time"
@@ -23,12 +25,41 @@ type HostRequest struct {
     Tags        map[string]string `json:"tags"`
 }
 
+// Enhanced HostResponse with IP check status and additional fields
 type HostResponse struct {
     *database.Host
-    Status     string    `json:"status"`
-    LastCheck  time.Time `json:"last_check"`
-    NextCheck  time.Time `json:"next_check"`
+    Status        string            `json:"status"`
+    LastCheck     time.Time         `json:"last_check"`
+    NextCheck     time.Time         `json:"next_check"`
+    CheckCount    int               `json:"check_count"`
+    IPAddressOK   bool              `json:"ip_address_ok"`
+    IPLastChecked time.Time         `json:"ip_last_checked"`
+    SoftFailInfo  map[string]*SoftFailStatus `json:"soft_fail_info,omitempty"`
+    OKDuration    map[string]*OKDurationInfo `json:"ok_duration,omitempty"`
+}
+
+// SoftFailStatus tracks consecutive failures for a check
+type SoftFailStatus struct {
+    CurrentFails  int       `json:"current_fails"`
+    ThresholdMax  int       `json:"threshold_max"`
+    FirstFailTime time.Time `json:"first_fail_time"`
+    LastFailTime  time.Time `json:"last_fail_time"`
+}
+
+// OKDurationInfo tracks how long a check has been OK
+type OKDurationInfo struct {
+    OKSince    time.Time `json:"ok_since"`
+    Duration   string    `json:"duration"`
     CheckCount int       `json:"check_count"`
+}
+
+// Enhanced status response with additional context
+type StatusResponse struct {
+    *database.Status
+    SoftFailsInfo *SoftFailStatus `json:"soft_fails_info,omitempty"`
+    OKInfo        *OKDurationInfo `json:"ok_info,omitempty"`
+    CheckName     string          `json:"check_name"`
+    HostName      string          `json:"host_name"`
 }
 
 // CheckRequest represents the request body for creating/updating checks
@@ -54,7 +85,7 @@ type Alert struct {
     Duration  int64     `json:"duration"` // milliseconds
 }
 
-// GET /api/hosts
+// GET /api/hosts - Enhanced to include IP checks and soft fail info
 func (s *Server) getHosts(c *gin.Context) {
     group := c.Query("group")
     enabledStr := c.Query("enabled")
@@ -75,12 +106,12 @@ func (s *Server) getHosts(c *gin.Context) {
         return
     }
 
-    // Enhance with status information - Fix: process each host individually
+    // Enhance with comprehensive status information
     response := make([]HostResponse, 0, len(hosts))
-    for i := range hosts { // Use index to avoid pointer issues
-        host := hosts[i] // Get individual host
+    for i := range hosts {
+        host := hosts[i]
         
-        // Get status for this specific host
+        // Get overall status for this specific host
         status := s.getHostStatus(c.Request.Context(), host.ID)
         
         // Get latest status timestamp for this host
@@ -94,12 +125,25 @@ func (s *Server) getHosts(c *gin.Context) {
             lastCheck = statuses[0].Timestamp
         }
 
+        // Check IP address connectivity
+        ipOK, ipLastChecked := s.checkIPAddress(host.IPv4, host.Hostname)
+
+        // Get soft fail information for all checks on this host
+        softFailInfo := s.getSoftFailInfo(c.Request.Context(), host.ID)
+
+        // Get OK duration information for all checks on this host
+        okDuration := s.getOKDurationInfo(c.Request.Context(), host.ID)
+
         hostResp := HostResponse{
-            Host:       &host, // Use address of the specific host
-            Status:     status,
-            LastCheck:  lastCheck,
-            NextCheck:  time.Time{}, // TODO: Calculate from scheduler
-            CheckCount: 0,           // TODO: Count active checks for this host
+            Host:          &host,
+            Status:        status,
+            LastCheck:     lastCheck,
+            NextCheck:     time.Time{}, // TODO: Calculate from scheduler
+            CheckCount:    0,           // TODO: Count active checks for this host
+            IPAddressOK:   ipOK,
+            IPLastChecked: ipLastChecked,
+            SoftFailInfo:  softFailInfo,
+            OKDuration:    okDuration,
         }
         response = append(response, hostResp)
     }
@@ -108,6 +152,266 @@ func (s *Server) getHosts(c *gin.Context) {
         "data":  response,
         "count": len(response),
     })
+}
+
+// checkIPAddress performs a basic connectivity test to the host's IP or hostname
+func (s *Server) checkIPAddress(ipv4, hostname string) (bool, time.Time) {
+    checkTime := time.Now()
+    
+    target := ipv4
+    if target == "" {
+        target = hostname
+    }
+    if target == "" {
+        return false, checkTime
+    }
+
+    // Simple TCP dial test to common ports (ping alternative that works through firewalls)
+    timeout := 3 * time.Second
+    ports := []string{"80", "443", "22", "21"} // Common ports to test
+    
+    for _, port := range ports {
+        conn, err := net.DialTimeout("tcp", net.JoinHostPort(target, port), timeout)
+        if err == nil {
+            conn.Close()
+            return true, checkTime
+        }
+    }
+
+    // Try ICMP ping as fallback (may not work in all environments)
+    // This is a simplified check - in production you might use a proper ping library
+    return false, checkTime
+}
+
+// getSoftFailInfo retrieves soft failure information for all checks on a host
+func (s *Server) getSoftFailInfo(ctx context.Context, hostID string) map[string]*SoftFailStatus {
+    softFailInfo := make(map[string]*SoftFailStatus)
+
+    // Get recent statuses for this host to analyze failure patterns
+    statuses, err := s.store.GetStatus(ctx, database.StatusFilters{
+        HostID: hostID,
+        Limit:  100, // Get enough history to analyze patterns
+    })
+    
+    if err != nil {
+        logrus.WithError(err).Error("Failed to get status for soft fail analysis")
+        return softFailInfo
+    }
+
+    // Group statuses by check_id and analyze failure patterns
+    checkStatuses := make(map[string][]*database.Status)
+    for i := range statuses {
+        checkID := statuses[i].CheckID
+        if checkStatuses[checkID] == nil {
+            checkStatuses[checkID] = make([]*database.Status, 0)
+        }
+        checkStatuses[checkID] = append(checkStatuses[checkID], &statuses[i])
+    }
+
+    // Analyze each check's failure pattern
+    for checkID, statusList := range checkStatuses {
+        if len(statusList) == 0 {
+            continue
+        }
+
+        // Sort by timestamp (most recent first)
+        // statusList is already sorted from the database query
+
+        // Look for consecutive failures at the start of the list (most recent)
+        consecutiveFails := 0
+        var firstFailTime, lastFailTime time.Time
+        
+        for _, status := range statusList {
+            if status.ExitCode != 0 { // Non-OK status
+                consecutiveFails++
+                lastFailTime = status.Timestamp
+                if firstFailTime.IsZero() {
+                    firstFailTime = status.Timestamp
+                }
+            } else {
+                break // Stop at first OK status
+            }
+        }
+
+        // Only include if there are current failures
+        if consecutiveFails > 0 {
+            // Get the check threshold (default to 3 if not available)
+            check, err := s.store.GetCheck(ctx, checkID)
+            threshold := 3
+            if err == nil && check.Threshold > 0 {
+                threshold = check.Threshold
+            }
+
+            softFailInfo[checkID] = &SoftFailStatus{
+                CurrentFails:  consecutiveFails,
+                ThresholdMax:  threshold,
+                FirstFailTime: firstFailTime,
+                LastFailTime:  lastFailTime,
+            }
+        }
+    }
+
+    return softFailInfo
+}
+
+// getOKDurationInfo retrieves information about how long checks have been OK
+func (s *Server) getOKDurationInfo(ctx context.Context, hostID string) map[string]*OKDurationInfo {
+    okDurationInfo := make(map[string]*OKDurationInfo)
+
+    // Get recent statuses for this host
+    statuses, err := s.store.GetStatus(ctx, database.StatusFilters{
+        HostID: hostID,
+        Limit:  1000, // Get more history for OK duration analysis
+    })
+    
+    if err != nil {
+        logrus.WithError(err).Error("Failed to get status for OK duration analysis")
+        return okDurationInfo
+    }
+
+    // Group statuses by check_id
+    checkStatuses := make(map[string][]*database.Status)
+    for i := range statuses {
+        checkID := statuses[i].CheckID
+        if checkStatuses[checkID] == nil {
+            checkStatuses[checkID] = make([]*database.Status, 0)
+        }
+        checkStatuses[checkID] = append(checkStatuses[checkID], &statuses[i])
+    }
+
+    // Analyze OK duration for each check
+    for checkID, statusList := range checkStatuses {
+        if len(statusList) == 0 {
+            continue
+        }
+
+        // Check if the most recent status is OK
+        if statusList[0].ExitCode == 0 {
+            okSince := statusList[0].Timestamp
+            okCount := 1
+
+            // Count consecutive OK statuses
+            for i := 1; i < len(statusList); i++ {
+                if statusList[i].ExitCode == 0 {
+                    okSince = statusList[i].Timestamp
+                    okCount++
+                } else {
+                    break // Stop at first non-OK status
+                }
+            }
+
+            duration := time.Since(okSince)
+            durationStr := formatDuration(duration)
+
+            okDurationInfo[checkID] = &OKDurationInfo{
+                OKSince:    okSince,
+                Duration:   durationStr,
+                CheckCount: okCount,
+            }
+        }
+    }
+
+    return okDurationInfo
+}
+
+// GET /api/status - Enhanced to include soft fail and OK duration info
+func (s *Server) getStatus(c *gin.Context) {
+    limitStr := c.DefaultQuery("limit", "100")
+    limit, _ := strconv.Atoi(limitStr)
+
+    filters := database.StatusFilters{
+        HostID:  c.Query("host_id"),
+        CheckID: c.Query("check_id"),
+        Limit:   limit,
+    }
+
+    if exitCodeStr := c.Query("exit_code"); exitCodeStr != "" {
+        if exitCode, err := strconv.Atoi(exitCodeStr); err == nil {
+            filters.ExitCode = &exitCode
+        }
+    }
+
+    statuses, err := s.store.GetStatus(c.Request.Context(), filters)
+    if err != nil {
+        logrus.WithError(err).Error("Failed to get status")
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get status"})
+        return
+    }
+
+    // Enhance statuses with additional context
+    enhancedStatuses := make([]StatusResponse, 0, len(statuses))
+    
+    for i := range statuses {
+        status := statuses[i]
+        
+        // Get check name
+        checkName := status.CheckID
+        if check, err := s.store.GetCheck(c.Request.Context(), status.CheckID); err == nil {
+            checkName = check.Name
+        }
+
+        // Get host name
+        hostName := status.HostID
+        if host, err := s.store.GetHost(c.Request.Context(), status.HostID); err == nil {
+            if host.DisplayName != "" {
+                hostName = host.DisplayName
+            } else {
+                hostName = host.Name
+            }
+        }
+
+        enhancedStatus := StatusResponse{
+            Status:    &status,
+            CheckName: checkName,
+            HostName:  hostName,
+        }
+
+        // Add soft fail info for non-OK statuses
+        if status.ExitCode != 0 {
+            softFailInfo := s.getSoftFailInfo(c.Request.Context(), status.HostID)
+            if info, exists := softFailInfo[status.CheckID]; exists {
+                enhancedStatus.SoftFailsInfo = info
+            }
+        }
+
+        // Add OK duration info for OK statuses
+        if status.ExitCode == 0 {
+            okDurationInfo := s.getOKDurationInfo(c.Request.Context(), status.HostID)
+            if info, exists := okDurationInfo[status.CheckID]; exists {
+                enhancedStatus.OKInfo = info
+            }
+        }
+
+        enhancedStatuses = append(enhancedStatuses, enhancedStatus)
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "data":  enhancedStatuses,
+        "count": len(enhancedStatuses),
+    })
+}
+
+// Helper function to format duration in a human-readable way
+func formatDuration(d time.Duration) string {
+    if d < time.Minute {
+        return fmt.Sprintf("%.0fs", d.Seconds())
+    } else if d < time.Hour {
+        return fmt.Sprintf("%.0fm", d.Minutes())
+    } else if d < 24*time.Hour {
+        hours := int(d.Hours())
+        minutes := int(d.Minutes()) % 60
+        if minutes > 0 {
+            return fmt.Sprintf("%dh %dm", hours, minutes)
+        }
+        return fmt.Sprintf("%dh", hours)
+    } else {
+        days := int(d.Hours()) / 24
+        hours := int(d.Hours()) % 24
+        if hours > 0 {
+            return fmt.Sprintf("%dd %dh", days, hours)
+        }
+        return fmt.Sprintf("%dd", days)
+    }
 }
 
 // GET /api/hosts/:id
@@ -224,36 +528,6 @@ func (s *Server) deleteHost(c *gin.Context) {
     s.engine.RefreshConfig()
 
     c.JSON(http.StatusOK, gin.H{"message": "Host deleted successfully"})
-}
-
-// GET /api/status
-func (s *Server) getStatus(c *gin.Context) {
-    limitStr := c.DefaultQuery("limit", "100")
-    limit, _ := strconv.Atoi(limitStr)
-
-    filters := database.StatusFilters{
-        HostID:  c.Query("host_id"),
-        CheckID: c.Query("check_id"),
-        Limit:   limit,
-    }
-
-    if exitCodeStr := c.Query("exit_code"); exitCodeStr != "" {
-        if exitCode, err := strconv.Atoi(exitCodeStr); err == nil {
-            filters.ExitCode = &exitCode
-        }
-    }
-
-    statuses, err := s.store.GetStatus(c.Request.Context(), filters)
-    if err != nil {
-        logrus.WithError(err).Error("Failed to get status")
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get status"})
-        return
-    }
-
-    c.JSON(http.StatusOK, gin.H{
-        "data":  statuses,
-        "count": len(statuses),
-    })
 }
 
 func (s *Server) getHostStatus(ctx context.Context, hostID string) string {

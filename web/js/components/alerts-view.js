@@ -1,4 +1,4 @@
-// js/components/alerts-view.js
+// js/components/alerts-view.js - Enhanced with soft fail tracking
 window.AlertsView = {
     props: {
         alerts: Array,
@@ -14,6 +14,9 @@ window.AlertsView = {
         },
         formatDuration(duration) {
             return window.RavenUtils.formatDuration(duration);
+        },
+        formatSoftFailStatus(softFailInfo) {
+            return window.RavenUtils.formatSoftFailStatus(softFailInfo);
         }
     },
     template: `
@@ -49,6 +52,16 @@ window.AlertsView = {
                     <div class="metric-value">{{ alertMetrics.warning }}</div>
                     <div class="metric-change">Medium priority</div>
                 </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Soft Fails</span>
+                        <div class="metric-icon warning">
+                            <i class="fas fa-hourglass-half"></i>
+                        </div>
+                    </div>
+                    <div class="metric-value">{{ alertMetrics.soft_fails || 0 }}</div>
+                    <div class="metric-change">Approaching threshold</div>
+                </div>
             </div>
 
             <div class="data-table">
@@ -62,6 +75,7 @@ window.AlertsView = {
                             <option value="critical">Critical Only</option>
                             <option value="warning">Warning Only</option>
                             <option value="unknown">Unknown Only</option>
+                            <option value="soft_fails">Soft Fails Only</option>
                         </select>
                     </div>
                 </div>
@@ -83,7 +97,7 @@ window.AlertsView = {
                                 <th>Severity</th>
                                 <th>Host</th>
                                 <th>Check</th>
-                                <th>Message</th>
+                                <th>Status Details</th>
                                 <th>Duration</th>
                             </tr>
                         </thead>
@@ -96,9 +110,18 @@ window.AlertsView = {
                                         {{ alert.severity.toUpperCase() }}
                                     </span>
                                 </td>
-                                <td>{{ alert.host }}</td>
-                                <td>{{ alert.check }}</td>
-                                <td>{{ alert.message }}</td>
+                                <td>{{ alert.host_name || alert.host }}</td>
+                                <td>{{ alert.check_name || alert.check }}</td>
+                                <td>
+                                    <div class="status-details">
+                                        <div>{{ alert.message }}</div>
+                                        <div v-if="alert.soft_fails_info" class="soft-fail-indicator">
+                                            <i class="fas fa-exclamation-triangle"></i>
+                                            Soft fail: {{ alert.soft_fails_info.current_fails }}/{{ alert.soft_fails_info.threshold_max }}
+                                            <span class="status-meta">(since {{ formatTime(alert.soft_fails_info.first_fail_time) }})</span>
+                                        </div>
+                                    </div>
+                                </td>
                                 <td>{{ formatDuration(alert.duration) }}</td>
                             </tr>
                         </tbody>
