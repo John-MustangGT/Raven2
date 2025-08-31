@@ -16,6 +16,7 @@ type Engine struct {
     config    *config.Config
     store     database.Store
     metrics   *metrics.Collector
+    alertManager *SimpleAlertManager
     scheduler *Scheduler
     plugins   map[string]Plugin
     mu        sync.RWMutex
@@ -42,6 +43,7 @@ func NewEngine(cfg *config.Config, store database.Store, metricsCollector *metri
         store:   store,
         metrics: metricsCollector,
         plugins: make(map[string]Plugin),
+        alertManager: NewSimpleAlertManager(store, cfg),
     }
 
     // Initialize plugins
@@ -72,6 +74,12 @@ func (e *Engine) Start(ctx context.Context) error {
         logrus.WithError(err).Error("Failed to sync config")
         return err
     }
+
+    purgeInterval := 6 * time.Hour
+    if e.config.Database.CleanupInterval > 0 {
+        purgeInterval = e.config.Database.CleanupInterval
+    }
+    e.alertManager.SchedulePeriodicPurge(ctx, purgeInterval)
 
     // Start scheduler
     return e.scheduler.Start(ctx)
@@ -191,5 +199,29 @@ func (e *Engine) loadPlugins() error {
     e.plugins["nagios"] = &NagiosPlugin{}
     
     logrus.WithField("plugins", len(e.plugins)).Info("Loaded plugins")
+    return nil
+}
+
+func (e *Engine) GetAlertManager() *SimpleAlertManager {
+    return e.alertManager
+}
+
+// Add this method:
+func (e *Engine) RefreshConfigWithPurge() error {
+    logrus.Info("Refreshing configuration with alert purging")
+    
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+    
+    if err := e.RefreshConfig(); err != nil {
+        return err
+    }
+
+    e.alertManager.config = e.config
+
+    if err := e.alertManager.PurgeAll(ctx); err != nil {
+        logrus.WithError(err).Warn("Alert purge completed with errors")
+    }
+
     return nil
 }

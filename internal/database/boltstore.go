@@ -316,6 +316,44 @@ func (s *BoltStore) DeleteCheck(ctx context.Context, id string) error {
     })
 }
 
+func (s *BoltStore) DeleteStatus(ctx context.Context, hostID, checkID string) error {
+    return s.db.Update(func(tx *bbolt.Tx) error {
+        statusBucket := tx.Bucket(StatusBucket)
+        if statusBucket != nil {
+            key := fmt.Sprintf("%s:%s", hostID, checkID)
+            return statusBucket.Delete([]byte(key))
+        }
+        return nil
+    })
+}
+
+func (s *BoltStore) GetDatabaseStats(ctx context.Context) (*DatabaseStats, error) {
+    stats := &DatabaseStats{}
+    
+    err := s.db.View(func(tx *bbolt.Tx) error {
+        if hostsBucket := tx.Bucket(HostsBucket); hostsBucket != nil {
+            stats.TotalHosts = hostsBucket.Stats().KeyN
+        }
+        if checksBucket := tx.Bucket(ChecksBucket); checksBucket != nil {
+            stats.TotalChecks = checksBucket.Stats().KeyN
+        }
+        if statusBucket := tx.Bucket(StatusBucket); statusBucket != nil {
+            stats.TotalStatusEntries = statusBucket.Stats().KeyN
+        }
+        return nil
+    })
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    if fileInfo, err := os.Stat(s.path); err == nil {
+        stats.DatabaseSize = fileInfo.Size()
+    }
+    
+    return stats, nil
+}
+
 func (s *BoltStore) Close() error {
     return s.db.Close()
 }

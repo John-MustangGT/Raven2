@@ -164,6 +164,9 @@ func (s *Server) setupRoutes() {
     // WebSocket endpoint
     s.router.GET("/ws", s.handleWebSocket)
 
+    // Add purge routes
+    s.setupPurgeRoutes()
+
     // Prometheus metrics
     if s.config.Prometheus.Enabled {
         s.router.GET(s.config.Prometheus.MetricsPath, gin.WrapH(promhttp.Handler()))
@@ -753,3 +756,5 @@ func corsMiddleware() gin.HandlerFunc {
         c.Next()
     }
 }
+
+
