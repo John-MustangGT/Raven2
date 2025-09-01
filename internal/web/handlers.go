@@ -1,4 +1,4 @@
-// internal/web/handlers.go
+// internal/web/handlers.go - Modified to include check names in monitoring results
 package web
 
 import (
@@ -27,26 +27,30 @@ type HostRequest struct {
 // Enhanced HostResponse with IP check status and additional fields
 type HostResponse struct {
     *database.Host
-    Status        string            `json:"status"`
-    LastCheck     time.Time         `json:"last_check"`
-    NextCheck     time.Time         `json:"next_check"`
-    CheckCount    int               `json:"check_count"`
-    IPAddressOK   bool              `json:"ip_address_ok"`
-    IPLastChecked time.Time         `json:"ip_last_checked"`
+    Status        string                     `json:"status"`
+    LastCheck     time.Time                  `json:"last_check"`
+    NextCheck     time.Time                  `json:"next_check"`
+    CheckCount    int                        `json:"check_count"`
+    IPAddressOK   bool                       `json:"ip_address_ok"`
+    IPLastChecked time.Time                  `json:"ip_last_checked"`
     SoftFailInfo  map[string]*SoftFailStatus `json:"soft_fail_info,omitempty"`
     OKDuration    map[string]*OKDurationInfo `json:"ok_duration,omitempty"`
+    // NEW: Add check names mapping for frontend display
+    CheckNames    map[string]string          `json:"check_names,omitempty"`
 }
 
-// SoftFailStatus tracks consecutive failures for a check
+// SoftFailStatus tracks consecutive failures for a check - ENHANCED with check name
 type SoftFailStatus struct {
+    CheckName     string    `json:"check_name"`     // NEW: Add check name
     CurrentFails  int       `json:"current_fails"`
     ThresholdMax  int       `json:"threshold_max"`
     FirstFailTime time.Time `json:"first_fail_time"`
     LastFailTime  time.Time `json:"last_fail_time"`
 }
 
-// OKDurationInfo tracks how long a check has been OK
+// OKDurationInfo tracks how long a check has been OK - ENHANCED with check name
 type OKDurationInfo struct {
+    CheckName  string    `json:"check_name"`  // NEW: Add check name
     OKSince    time.Time `json:"ok_since"`
     Duration   string    `json:"duration"`
     CheckCount int       `json:"check_count"`
@@ -84,7 +88,7 @@ type Alert struct {
     Duration  int64     `json:"duration"` // milliseconds
 }
 
-// GET /api/hosts - Enhanced to include IP checks and soft fail info
+// GET /api/hosts - Enhanced to include IP checks and soft fail info with CHECK NAMES
 func (s *Server) getHosts(c *gin.Context) {
     group := c.Query("group")
     enabledStr := c.Query("enabled")
@@ -127,11 +131,14 @@ func (s *Server) getHosts(c *gin.Context) {
         // Check IP address connectivity
         ipOK, ipLastChecked := s.checkIPAddress(host.IPv4, host.Hostname)
 
-        // Get soft fail information for all checks on this host
-        softFailInfo := s.getSoftFailInfo(c.Request.Context(), host.ID)
+        // Get soft fail information for all checks on this host WITH CHECK NAMES
+        softFailInfo := s.getSoftFailInfoWithNames(c.Request.Context(), host.ID)
 
-        // Get OK duration information for all checks on this host
-        okDuration := s.getOKDurationInfo(c.Request.Context(), host.ID)
+        // Get OK duration information for all checks on this host WITH CHECK NAMES
+        okDuration := s.getOKDurationInfoWithNames(c.Request.Context(), host.ID)
+
+        // Get check names mapping for this host
+        checkNames := s.getCheckNamesForHost(c.Request.Context(), host.ID)
 
         hostResp := HostResponse{
             Host:          &host,
@@ -143,6 +150,7 @@ func (s *Server) getHosts(c *gin.Context) {
             IPLastChecked: ipLastChecked,
             SoftFailInfo:  softFailInfo,
             OKDuration:    okDuration,
+            CheckNames:    checkNames,  // NEW: Include check names
         }
         response = append(response, hostResp)
     }
@@ -153,13 +161,31 @@ func (s *Server) getHosts(c *gin.Context) {
     })
 }
 
-// checkIPAddress performs a basic connectivity test to the host's IP or hostname
-func (s *Server) checkIPAddress(ipv4, hostname string) (bool, time.Time) {
-    return true, time.Now()
+// NEW: Get check names for a host
+func (s *Server) getCheckNamesForHost(ctx context.Context, hostID string) map[string]string {
+    checkNames := make(map[string]string)
+
+    // Get all checks that include this host
+    checks, err := s.store.GetChecks(ctx)
+    if err != nil {
+        logrus.WithError(err).Error("Failed to get checks for host")
+        return checkNames
+    }
+
+    for _, check := range checks {
+        for _, checkHostID := range check.Hosts {
+            if checkHostID == hostID {
+                checkNames[check.ID] = check.Name
+                break
+            }
+        }
+    }
+
+    return checkNames
 }
 
-// getSoftFailInfo retrieves soft failure information for all checks on a host
-func (s *Server) getSoftFailInfo(ctx context.Context, hostID string) map[string]*SoftFailStatus {
+// ENHANCED: getSoftFailInfoWithNames retrieves soft failure information WITH check names
+func (s *Server) getSoftFailInfoWithNames(ctx context.Context, hostID string) map[string]*SoftFailStatus {
     softFailInfo := make(map[string]*SoftFailStatus)
 
     // Get recent statuses for this host to analyze failure patterns
@@ -210,14 +236,22 @@ func (s *Server) getSoftFailInfo(ctx context.Context, hostID string) map[string]
 
         // Only include if there are current failures
         if consecutiveFails > 0 {
-            // Get the check threshold (default to 3 if not available)
+            // Get the check details including name and threshold
             check, err := s.store.GetCheck(ctx, checkID)
             threshold := 3
-            if err == nil && check.Threshold > 0 {
-                threshold = check.Threshold
+            checkName := checkID // fallback to ID if name not found
+            
+            if err == nil {
+                if check.Threshold > 0 {
+                    threshold = check.Threshold
+                }
+                if check.Name != "" {
+                    checkName = check.Name  // Use actual check name
+                }
             }
 
             softFailInfo[checkID] = &SoftFailStatus{
+                CheckName:     checkName,     // NEW: Include check name
                 CurrentFails:  consecutiveFails,
                 ThresholdMax:  threshold,
                 FirstFailTime: firstFailTime,
@@ -229,8 +263,8 @@ func (s *Server) getSoftFailInfo(ctx context.Context, hostID string) map[string]
     return softFailInfo
 }
 
-// getOKDurationInfo retrieves information about how long checks have been OK
-func (s *Server) getOKDurationInfo(ctx context.Context, hostID string) map[string]*OKDurationInfo {
+// ENHANCED: getOKDurationInfoWithNames retrieves information about how long checks have been OK WITH check names
+func (s *Server) getOKDurationInfoWithNames(ctx context.Context, hostID string) map[string]*OKDurationInfo {
     okDurationInfo := make(map[string]*OKDurationInfo)
 
     // Get recent statuses for this host
@@ -278,7 +312,16 @@ func (s *Server) getOKDurationInfo(ctx context.Context, hostID string) map[strin
             duration := time.Since(okSince)
             durationStr := formatDuration(duration)
 
+            // Get check name
+            check, err := s.store.GetCheck(ctx, checkID)
+            checkName := checkID // fallback to ID if name not found
+            
+            if err == nil && check.Name != "" {
+                checkName = check.Name  // Use actual check name
+            }
+
             okDurationInfo[checkID] = &OKDurationInfo{
+                CheckName:  checkName,  // NEW: Include check name
                 OKSince:    okSince,
                 Duration:   durationStr,
                 CheckCount: okCount,
@@ -287,6 +330,51 @@ func (s *Server) getOKDurationInfo(ctx context.Context, hostID string) map[strin
     }
 
     return okDurationInfo
+}
+
+// checkIPAddress performs a basic connectivity test to the host's IP or hostname
+func (s *Server) checkIPAddress(ipv4, hostname string) (bool, time.Time) {
+    return true, time.Now()
+}
+
+// LEGACY: Keep original functions for backward compatibility, but mark as deprecated
+// getSoftFailInfo retrieves soft failure information for all checks on a host
+// DEPRECATED: Use getSoftFailInfoWithNames instead
+func (s *Server) getSoftFailInfo(ctx context.Context, hostID string) map[string]*SoftFailStatus {
+    // Convert new format to old format (without check names)
+    newFormat := s.getSoftFailInfoWithNames(ctx, hostID)
+    oldFormat := make(map[string]*SoftFailStatus)
+    
+    for checkID, failInfo := range newFormat {
+        oldFormat[checkID] = &SoftFailStatus{
+            CurrentFails:  failInfo.CurrentFails,
+            ThresholdMax:  failInfo.ThresholdMax,
+            FirstFailTime: failInfo.FirstFailTime,
+            LastFailTime:  failInfo.LastFailTime,
+            // Don't include CheckName for backward compatibility
+        }
+    }
+    
+    return oldFormat
+}
+
+// getOKDurationInfo retrieves information about how long checks have been OK
+// DEPRECATED: Use getOKDurationInfoWithNames instead
+func (s *Server) getOKDurationInfo(ctx context.Context, hostID string) map[string]*OKDurationInfo {
+    // Convert new format to old format (without check names)
+    newFormat := s.getOKDurationInfoWithNames(ctx, hostID)
+    oldFormat := make(map[string]*OKDurationInfo)
+    
+    for checkID, okInfo := range newFormat {
+        oldFormat[checkID] = &OKDurationInfo{
+            OKSince:    okInfo.OKSince,
+            Duration:   okInfo.Duration,
+            CheckCount: okInfo.CheckCount,
+            // Don't include CheckName for backward compatibility
+        }
+    }
+    
+    return oldFormat
 }
 
 // GET /api/status - Enhanced to include soft fail and OK duration info
@@ -341,17 +429,17 @@ func (s *Server) getStatus(c *gin.Context) {
             HostName:  hostName,
         }
 
-        // Add soft fail info for non-OK statuses
+        // Add soft fail info for non-OK statuses WITH check names
         if status.ExitCode != 0 {
-            softFailInfo := s.getSoftFailInfo(c.Request.Context(), status.HostID)
+            softFailInfo := s.getSoftFailInfoWithNames(c.Request.Context(), status.HostID)
             if info, exists := softFailInfo[status.CheckID]; exists {
                 enhancedStatus.SoftFailsInfo = info
             }
         }
 
-        // Add OK duration info for OK statuses
+        // Add OK duration info for OK statuses WITH check names
         if status.ExitCode == 0 {
-            okDurationInfo := s.getOKDurationInfo(c.Request.Context(), status.HostID)
+            okDurationInfo := s.getOKDurationInfoWithNames(c.Request.Context(), status.HostID)
             if info, exists := okDurationInfo[status.CheckID]; exists {
                 enhancedStatus.OKInfo = info
             }
@@ -389,7 +477,6 @@ func formatDuration(d time.Duration) string {
     }
 }
 
-// GET /api/hosts/:id
 func (s *Server) getHost(c *gin.Context) {
     id := c.Param("id")
     
@@ -407,7 +494,6 @@ func (s *Server) getHost(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{"data": host})
 }
 
-// POST /api/hosts
 func (s *Server) createHost(c *gin.Context) {
     var req HostRequest
     if err := c.ShouldBindJSON(&req); err != nil {
@@ -447,7 +533,6 @@ func (s *Server) createHost(c *gin.Context) {
     c.JSON(http.StatusCreated, gin.H{"data": host})
 }
 
-// PUT /api/hosts/:id
 func (s *Server) updateHost(c *gin.Context) {
     id := c.Param("id")
     
@@ -489,7 +574,6 @@ func (s *Server) updateHost(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{"data": host})
 }
 
-// DELETE /api/hosts/:id
 func (s *Server) deleteHost(c *gin.Context) {
     id := c.Param("id")
     
@@ -526,6 +610,75 @@ func (s *Server) getHostStatus(ctx context.Context, hostID string) string {
     default:
         return "unknown"
     }
+}
+
+// Helper function to convert exit codes to status names
+func getStatusName(exitCode int) string {
+    switch exitCode {
+    case 0:
+        return "ok"
+    case 1:
+        return "warning"
+    case 2:
+        return "critical"
+    default:
+        return "unknown"
+    }
+}
+
+
+// POST /api/checks - Update the existing createCheck to handle intervals properly
+func (s *Server) createCheck(c *gin.Context) {
+    var req CheckRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Parse interval durations
+    intervalDurations := make(map[string]time.Duration)
+    for state, intervalStr := range req.Interval {
+        if duration, err := time.ParseDuration(intervalStr); err == nil {
+            intervalDurations[state] = duration
+        } else {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interval format for " + state + ": " + intervalStr})
+            return
+        }
+    }
+
+    // Parse timeout
+    var timeout time.Duration
+    if req.Timeout != "" {
+        if t, err := time.ParseDuration(req.Timeout); err == nil {
+            timeout = t
+        } else {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid timeout format: " + req.Timeout})
+            return
+        }
+    }
+
+    check := &database.Check{
+        ID:        uuid.New().String(),
+        Name:      req.Name,
+        Type:      req.Type,
+        Hosts:     req.Hosts,
+        Interval:  intervalDurations,
+        Threshold: req.Threshold,
+        Timeout:   timeout,
+        Enabled:   req.Enabled,
+        Options:   req.Options,
+        CreatedAt: time.Now(),
+        UpdatedAt: time.Now(),
+    }
+
+    if err := s.store.CreateCheck(c.Request.Context(), check); err != nil {
+        logrus.WithError(err).Error("Failed to create check")
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create check"})
+        return
+    }
+
+    s.engine.RefreshConfig()
+    c.JSON(http.StatusCreated, gin.H{"data": check})
 }
 
 // PUT /api/checks/:id - Update existing check
@@ -708,70 +861,4 @@ func (s *Server) getAlertsSummary(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{"data": summary})
 }
 
-// POST /api/checks - Update the existing createCheck to handle intervals properly
-func (s *Server) createCheck(c *gin.Context) {
-    var req CheckRequest
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
 
-    // Parse interval durations
-    intervalDurations := make(map[string]time.Duration)
-    for state, intervalStr := range req.Interval {
-        if duration, err := time.ParseDuration(intervalStr); err == nil {
-            intervalDurations[state] = duration
-        } else {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interval format for " + state + ": " + intervalStr})
-            return
-        }
-    }
-
-    // Parse timeout
-    var timeout time.Duration
-    if req.Timeout != "" {
-        if t, err := time.ParseDuration(req.Timeout); err == nil {
-            timeout = t
-        } else {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid timeout format: " + req.Timeout})
-            return
-        }
-    }
-
-    check := &database.Check{
-        ID:        uuid.New().String(),
-        Name:      req.Name,
-        Type:      req.Type,
-        Hosts:     req.Hosts,
-        Interval:  intervalDurations,
-        Threshold: req.Threshold,
-        Timeout:   timeout,
-        Enabled:   req.Enabled,
-        Options:   req.Options,
-        CreatedAt: time.Now(),
-        UpdatedAt: time.Now(),
-    }
-
-    if err := s.store.CreateCheck(c.Request.Context(), check); err != nil {
-        logrus.WithError(err).Error("Failed to create check")
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create check"})
-        return
-    }
-
-    s.engine.RefreshConfig()
-    c.JSON(http.StatusCreated, gin.H{"data": check})
-}
-
-// Helper function to convert exit codes to status names
-func getStatusName(exitCode int) string {
-    switch exitCode {
-    case 0:
-        return "ok"
-    case 1:
-        return "warning"
-    case 2:
-        return "critical"
-    default:
-        return "unknown"
-    }
-}

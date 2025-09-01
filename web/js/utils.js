@@ -1,4 +1,4 @@
-// Enhanced js/utils.js - Utility functions with IP and soft fail support
+// Enhanced js/utils.js - Utility functions with check name support
 window.RavenUtils = {
     formatTime(timestamp) {
         if (!timestamp) return 'Never';
@@ -87,21 +87,56 @@ window.RavenUtils = {
         return `${status} (${time})`;
     },
 
-    formatSoftFailStatus(softFailInfo) {
+    // ENHANCED: Format soft fail status with check name support
+    formatSoftFailStatus(softFailInfo, useCheckNames = true) {
         if (!softFailInfo) return '';
         
-        const { current_fails, threshold_max, first_fail_time } = softFailInfo;
-        const duration = this.calculateDuration(first_fail_time);
-        const durationStr = this.formatDuration(duration);
+        // Handle both old format (single object) and new format (with check_name property)
+        if (softFailInfo.current_fails !== undefined) {
+            // Single soft fail object
+            const { current_fails, threshold_max, first_fail_time, check_name } = softFailInfo;
+            const duration = this.calculateDuration(first_fail_time);
+            const durationStr = this.formatDuration(duration);
+            
+            const name = useCheckNames && check_name ? check_name : 'Check';
+            return `${name}: ${current_fails}/${threshold_max} fails (${durationStr})`;
+        }
         
-        return `${current_fails}/${threshold_max} fails (${durationStr})`;
+        // Multiple soft fails (object with check IDs as keys)
+        const results = [];
+        for (const [checkId, failInfo] of Object.entries(softFailInfo)) {
+            const { current_fails, threshold_max, first_fail_time, check_name } = failInfo;
+            const duration = this.calculateDuration(first_fail_time);
+            const durationStr = this.formatDuration(duration);
+            
+            const name = useCheckNames && check_name ? check_name : checkId;
+            results.push(`${name}: ${current_fails}/${threshold_max} fails (${durationStr})`);
+        }
+        
+        return results.join(', ');
     },
 
-    formatOKDuration(okInfo) {
+    // ENHANCED: Format OK duration with check name support
+    formatOKDuration(okInfo, useCheckNames = true) {
         if (!okInfo) return '';
         
-        const { ok_since, duration, check_count } = okInfo;
-        return `OK since ${this.formatTime(ok_since)} (${duration}, ${check_count} checks)`;
+        // Handle both old format (single object) and new format (with check_name property)
+        if (okInfo.ok_since !== undefined) {
+            // Single OK duration object
+            const { ok_since, duration, check_count, check_name } = okInfo;
+            const name = useCheckNames && check_name ? check_name : 'Check';
+            return `${name}: OK since ${this.formatTime(ok_since)} (${duration}, ${check_count} checks)`;
+        }
+        
+        // Multiple OK durations (object with check IDs as keys)
+        const results = [];
+        for (const [checkId, okInfo] of Object.entries(okInfo)) {
+            const { ok_since, duration, check_count, check_name } = okInfo;
+            const name = useCheckNames && check_name ? check_name : checkId;
+            results.push(`${name}: OK for ${duration} (${check_count} checks)`);
+        }
+        
+        return results.join(', ');
     },
 
     getIPCheckClass(ipOK) {
@@ -118,6 +153,99 @@ window.RavenUtils = {
         if (ratio >= 0.8) return 'warning';
         if (ratio >= 0.5) return 'warning';
         return 'unknown';
+    },
+
+    // NEW: Get check name with fallback to check ID
+    getCheckNameWithFallback(checkId, checkNamesMapping) {
+        if (checkNamesMapping && checkNamesMapping[checkId]) {
+            return checkNamesMapping[checkId];
+        }
+        return checkId;
+    },
+
+    // NEW: Format monitoring results for display
+    formatMonitoringResultsForDisplay(monitoringData, host, type = 'soft_fail') {
+        if (!monitoringData || Object.keys(monitoringData).length === 0) {
+            return null;
+        }
+
+        const results = [];
+        for (const [checkId, info] of Object.entries(monitoringData)) {
+            let checkName = checkId; // fallback
+            
+            // Try multiple ways to get the check name
+            if (info.check_name) {
+                checkName = info.check_name;
+            } else if (host.check_names && host.check_names[checkId]) {
+                checkName = host.check_names[checkId];
+            }
+            
+            const result = {
+                checkId: checkId,
+                checkName: checkName,
+                ...info
+            };
+            
+            results.push(result);
+        }
+        
+        // Sort by check name for consistent display
+        results.sort((a, b) => a.checkName.localeCompare(b.checkName));
+        
+        return results;
+    },
+
+    // NEW: Get monitoring summary for a host
+    getMonitoringSummary(host) {
+        const summary = {
+            totalChecks: 0,
+            healthyChecks: 0,
+            failingChecks: 0,
+            criticalFailures: 0,
+            softFailures: 0,
+            checkNames: []
+        };
+
+        // Count checks from check_names mapping
+        if (host.check_names) {
+            summary.totalChecks = Object.keys(host.check_names).length;
+            summary.checkNames = Object.values(host.check_names);
+        }
+
+        // Count healthy checks
+        if (host.ok_duration) {
+            summary.healthyChecks = Object.keys(host.ok_duration).length;
+        }
+
+        // Count and categorize failures
+        if (host.soft_fail_info) {
+            summary.failingChecks = Object.keys(host.soft_fail_info).length;
+            
+            for (const failInfo of Object.values(host.soft_fail_info)) {
+                const ratio = failInfo.current_fails / failInfo.threshold_max;
+                if (ratio >= 1) {
+                    summary.criticalFailures++;
+                } else {
+                    summary.softFailures++;
+                }
+            }
+        }
+
+        return summary;
+    },
+
+    // NEW: Format check type display
+    formatCheckTypeDisplay(checkType) {
+        const typeMap = {
+            'ping': 'Network Ping',
+            'http': 'HTTP Check',
+            'https': 'HTTPS Check', 
+            'nagios': 'Nagios Plugin',
+            'tcp': 'TCP Connection',
+            'dns': 'DNS Lookup'
+        };
+        
+        return typeMap[checkType?.toLowerCase()] || checkType || 'Unknown';
     },
 
     // Status analysis helpers
@@ -306,7 +434,7 @@ window.RavenUtils = {
         });
     },
 
-    // Enhanced search functionality
+    // Enhanced search functionality WITH check name support
     searchHosts(hosts, query) {
         if (!query) return hosts;
         
@@ -328,6 +456,14 @@ window.RavenUtils = {
             const statusMatch = host.status?.toLowerCase().includes(searchTerm);
             if (statusMatch) return true;
             
+            // Check names matching (NEW)
+            if (host.check_names) {
+                const checkNameMatch = Object.values(host.check_names).some(checkName =>
+                    checkName?.toLowerCase().includes(searchTerm)
+                );
+                if (checkNameMatch) return true;
+            }
+            
             // Tag matching (if tags exist)
             if (host.tags) {
                 const tagMatch = Object.entries(host.tags).some(([key, value]) =>
@@ -341,7 +477,7 @@ window.RavenUtils = {
         });
     },
 
-    // Export functionality helpers
+    // Enhanced export functionality with check names
     exportHostsToCSV(hosts) {
         const headers = [
             'Name',
@@ -352,20 +488,87 @@ window.RavenUtils = {
             'Status',
             'IP Check',
             'Last Check',
-            'Enabled'
+            'Enabled',
+            'Active Checks',
+            'Failing Tests',
+            'Healthy Tests'
         ];
         
-        const rows = hosts.map(host => [
-            host.name || '',
-            host.display_name || '',
-            host.ipv4 || '',
-            host.hostname || '',
-            host.group || '',
-            host.status || '',
-            host.ip_address_ok ? 'OK' : 'Failed',
-            this.formatTime(host.last_check),
-            host.enabled ? 'Yes' : 'No'
-        ]);
+        const rows = hosts.map(host => {
+            const summary = this.getMonitoringSummary(host);
+            
+            return [
+                host.name || '',
+                host.display_name || '',
+                host.ipv4 || '',
+                host.hostname || '',
+                host.group || '',
+                host.status || '',
+                host.ip_address_ok ? 'OK' : 'Failed',
+                this.formatTime(host.last_check),
+                host.enabled ? 'Yes' : 'No',
+                summary.checkNames.join('; '),
+                summary.failingChecks > 0 ? summary.failingChecks + ' tests' : 'None',
+                summary.healthyChecks > 0 ? summary.healthyChecks + ' tests' : 'None'
+            ];
+        });
+        
+        return this.arrayToCSV([headers, ...rows]);
+    },
+
+    // NEW: Export monitoring results to CSV
+    exportMonitoringResultsToCSV(hosts) {
+        const headers = [
+            'Host Name',
+            'Check Name', 
+            'Check Type',
+            'Status',
+            'Failures',
+            'Threshold',
+            'First Fail Time',
+            'OK Since',
+            'OK Duration'
+        ];
+        
+        const rows = [];
+        
+        hosts.forEach(host => {
+            const hostName = host.display_name || host.name;
+            
+            // Add soft fail entries
+            if (host.soft_fail_info) {
+                Object.values(host.soft_fail_info).forEach(failInfo => {
+                    rows.push([
+                        hostName,
+                        failInfo.check_name || 'Unknown',
+                        'Failing',
+                        'Soft Fail',
+                        `${failInfo.current_fails}/${failInfo.threshold_max}`,
+                        failInfo.threshold_max,
+                        this.formatTime(failInfo.first_fail_time),
+                        '',
+                        ''
+                    ]);
+                });
+            }
+            
+            // Add OK entries
+            if (host.ok_duration) {
+                Object.values(host.ok_duration).forEach(okInfo => {
+                    rows.push([
+                        hostName,
+                        okInfo.check_name || 'Unknown',
+                        'Healthy',
+                        'OK',
+                        '',
+                        '',
+                        '',
+                        this.formatTime(okInfo.ok_since),
+                        okInfo.duration
+                    ]);
+                });
+            }
+        });
         
         return this.arrayToCSV([headers, ...rows]);
     },
@@ -375,7 +578,7 @@ window.RavenUtils = {
             'Timestamp',
             'Severity',
             'Host',
-            'Check',
+            'Check Name',
             'Message',
             'Duration',
             'Soft Fails',
@@ -386,7 +589,7 @@ window.RavenUtils = {
             this.formatTime(alert.timestamp),
             alert.severity,
             alert.host_name || alert.host,
-            alert.check_name || alert.check,
+            alert.check_name || alert.check || 'Unknown Check',  // Enhanced with check name
             alert.message || '',
             this.formatDuration(alert.duration),
             alert.soft_fails_info ? this.formatSoftFailStatus(alert.soft_fails_info) : '',

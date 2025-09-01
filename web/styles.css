@@ -1148,3 +1148,297 @@ tbody tr:hover {
         color: #000 !important;
     }
 }
+/* Enhanced monitoring results styles - Add to your styles.css */
+
+/* Monitoring Results Container */
+.monitoring-results {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: rgba(59, 130, 246, 0.05);
+    border-radius: 0.5rem;
+    border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.monitoring-section {
+    margin-bottom: 0.5rem;
+}
+
+.monitoring-section:last-child {
+    margin-bottom: 0;
+}
+
+.monitoring-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.monitoring-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.monitoring-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
+}
+
+.monitoring-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Soft Fail Items */
+.soft-fail-item {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.soft-fail-item:hover {
+    background: rgba(245, 158, 11, 0.15);
+}
+
+/* OK Items */
+.ok-item {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.ok-item:hover {
+    background: rgba(16, 185, 129, 0.15);
+}
+
+/* Test Name Display */
+.monitoring-test-name {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.monitoring-test-name i {
+    flex-shrink: 0;
+    width: 16px;
+    font-size: 0.875rem;
+}
+
+/* Monitoring Details */
+.monitoring-details {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-left: 1.5rem;
+    font-size: 0.8rem;
+}
+
+.monitoring-time {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Enhanced status indicators */
+.soft-fail-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-weight: 600;
+    color: var(--warning-color);
+    padding: 0.125rem 0.5rem;
+    background: rgba(245, 158, 11, 0.2);
+    border-radius: 0.25rem;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    font-size: 0.75rem;
+}
+
+.ok-duration {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--success-color);
+    font-weight: 600;
+    padding: 0.125rem 0.5rem;
+    background: rgba(16, 185, 129, 0.2);
+    border-radius: 0.25rem;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    font-size: 0.75rem;
+}
+
+/* Responsive adjustments for monitoring results */
+@media (max-width: 1024px) {
+    .monitoring-results {
+        padding: 0.5rem;
+    }
+    
+    .monitoring-header {
+        font-size: 0.8rem;
+    }
+    
+    .monitoring-test-name {
+        font-size: 0.85rem;
+    }
+    
+    .monitoring-details {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+        margin-left: 1rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .monitoring-results {
+        padding: 0.375rem;
+        margin-top: 0.375rem;
+    }
+    
+    .monitoring-item {
+        padding: 0.375rem;
+    }
+    
+    .monitoring-test-name {
+        font-size: 0.8rem;
+    }
+    
+    .monitoring-details {
+        margin-left: 0.75rem;
+    }
+    
+    .soft-fail-indicator,
+    .ok-duration {
+        font-size: 0.7rem;
+        padding: 0.1rem 0.375rem;
+    }
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .monitoring-results {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.25);
+}
+
+[data-theme="dark"] .soft-fail-item {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+[data-theme="dark"] .soft-fail-item:hover {
+    background: rgba(245, 158, 11, 0.2);
+}
+
+[data-theme="dark"] .ok-item {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+[data-theme="dark"] .ok-item:hover {
+    background: rgba(16, 185, 129, 0.2);
+}
+
+[data-theme="dark"] .soft-fail-indicator {
+    background: rgba(245, 158, 11, 0.25);
+    border-color: rgba(245, 158, 11, 0.4);
+}
+
+[data-theme="dark"] .ok-duration {
+    background: rgba(16, 185, 129, 0.25);
+    border-color: rgba(16, 185, 129, 0.4);
+}
+
+/* Animation for monitoring results */
+@keyframes slideInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.monitoring-results {
+    animation: slideInDown 0.3s ease-out;
+}
+
+.monitoring-item {
+    animation: slideInDown 0.3s ease-out;
+}
+
+.monitoring-item:nth-child(2) {
+    animation-delay: 0.1s;
+}
+
+.monitoring-item:nth-child(3) {
+    animation-delay: 0.2s;
+}
+
+/* Enhanced tooltip for test names */
+.monitoring-test-name[title]:hover::after {
+    content: attr(title);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--darker-bg);
+    color: white;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    z-index: 1000;
+    box-shadow: var(--shadow-lg);
+}
+
+/* Status table header enhancement */
+.table-content th:nth-child(4) {
+    min-width: 300px; /* Ensure enough space for monitoring results */
+}
+
+/* Print styles */
+@media print {
+    .monitoring-results {
+        background: transparent !important;
+        border: 1px solid #000 !important;
+    }
+    
+    .soft-fail-item,
+    .ok-item {
+        background: transparent !important;
+        border: 1px solid #000 !important;
+    }
+    
+    .soft-fail-indicator,
+    .ok-duration {
+        background: transparent !important;
+        border: 1px solid #000 !important;
+        color: #000 !important;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .monitoring-results {
+        border: 2px solid;
+    }
+    
+    .soft-fail-item {
+        border: 2px solid var(--warning-color);
+    }
+    
+    .ok-item {
+        border: 2px solid var(--success-color);
+    }
+}
