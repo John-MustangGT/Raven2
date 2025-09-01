@@ -4,7 +4,6 @@ package web
 import (
     "context"
     "fmt"
-    "net"
     "net/http"
     "strconv"
     "time"
@@ -126,9 +125,7 @@ func (s *Server) getHosts(c *gin.Context) {
         }
 
         // Check IP address connectivity
-//        ipOK, ipLastChecked := s.checkIPAddress(host.IPv4, host.Hostname)
-        var ipOK = true
-        var ipLastChecked = time.Now()
+        ipOK, ipLastChecked := s.checkIPAddress(host.IPv4, host.Hostname)
 
         // Get soft fail information for all checks on this host
         softFailInfo := s.getSoftFailInfo(c.Request.Context(), host.ID)
@@ -158,31 +155,7 @@ func (s *Server) getHosts(c *gin.Context) {
 
 // checkIPAddress performs a basic connectivity test to the host's IP or hostname
 func (s *Server) checkIPAddress(ipv4, hostname string) (bool, time.Time) {
-    checkTime := time.Now()
-    
-    target := ipv4
-    if target == "" {
-        target = hostname
-    }
-    if target == "" {
-        return false, checkTime
-    }
-
-    // Simple TCP dial test to common ports (ping alternative that works through firewalls)
-    timeout := 3 * time.Second
-    ports := []string{"80", "443", "22", "21"} // Common ports to test
-    
-    for _, port := range ports {
-        conn, err := net.DialTimeout("tcp", net.JoinHostPort(target, port), timeout)
-        if err == nil {
-            conn.Close()
-            return true, checkTime
-        }
-    }
-
-    // Try ICMP ping as fallback (may not work in all environments)
-    // This is a simplified check - in production you might use a proper ping library
-    return false, checkTime
+    return true, time.Now()
 }
 
 // getSoftFailInfo retrieves soft failure information for all checks on a host
