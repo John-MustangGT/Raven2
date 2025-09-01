@@ -131,13 +131,13 @@ func (s *Server) getHosts(c *gin.Context) {
         // Check IP address connectivity
         ipOK, ipLastChecked := s.checkIPAddress(host.IPv4, host.Hostname)
 
-        // Get soft fail information for all checks on this host WITH CHECK NAMES
+        // CRITICAL: Get soft fail information WITH CHECK NAMES
         softFailInfo := s.getSoftFailInfoWithNames(c.Request.Context(), host.ID)
 
-        // Get OK duration information for all checks on this host WITH CHECK NAMES
+        // CRITICAL: Get OK duration information WITH CHECK NAMES
         okDuration := s.getOKDurationInfoWithNames(c.Request.Context(), host.ID)
 
-        // Get check names mapping for this host
+        // CRITICAL: Get check names mapping for this host
         checkNames := s.getCheckNamesForHost(c.Request.Context(), host.ID)
 
         hostResp := HostResponse{
@@ -148,9 +148,9 @@ func (s *Server) getHosts(c *gin.Context) {
             CheckCount:    0,           // TODO: Count active checks for this host
             IPAddressOK:   ipOK,
             IPLastChecked: ipLastChecked,
-            SoftFailInfo:  softFailInfo,
-            OKDuration:    okDuration,
-            CheckNames:    checkNames,  // NEW: Include check names
+            SoftFailInfo:  softFailInfo,  // This now includes check names
+            OKDuration:    okDuration,    // This now includes check names
+            CheckNames:    checkNames,    // This maps check IDs to names
         }
         response = append(response, hostResp)
     }
@@ -191,7 +191,7 @@ func (s *Server) getSoftFailInfoWithNames(ctx context.Context, hostID string) ma
     // Get recent statuses for this host to analyze failure patterns
     statuses, err := s.store.GetStatus(ctx, database.StatusFilters{
         HostID: hostID,
-        Limit:  100, // Get enough history to analyze patterns
+        Limit:  100,
     })
     
     if err != nil {
@@ -214,9 +214,6 @@ func (s *Server) getSoftFailInfoWithNames(ctx context.Context, hostID string) ma
         if len(statusList) == 0 {
             continue
         }
-
-        // Sort by timestamp (most recent first)
-        // statusList is already sorted from the database query
 
         // Look for consecutive failures at the start of the list (most recent)
         consecutiveFails := 0
@@ -251,7 +248,7 @@ func (s *Server) getSoftFailInfoWithNames(ctx context.Context, hostID string) ma
             }
 
             softFailInfo[checkID] = &SoftFailStatus{
-                CheckName:     checkName,     // NEW: Include check name
+                CheckName:     checkName,     // IMPORTANT: Include check name
                 CurrentFails:  consecutiveFails,
                 ThresholdMax:  threshold,
                 FirstFailTime: firstFailTime,
@@ -264,13 +261,14 @@ func (s *Server) getSoftFailInfoWithNames(ctx context.Context, hostID string) ma
 }
 
 // ENHANCED: getOKDurationInfoWithNames retrieves information about how long checks have been OK WITH check names
+
 func (s *Server) getOKDurationInfoWithNames(ctx context.Context, hostID string) map[string]*OKDurationInfo {
     okDurationInfo := make(map[string]*OKDurationInfo)
 
     // Get recent statuses for this host
     statuses, err := s.store.GetStatus(ctx, database.StatusFilters{
         HostID: hostID,
-        Limit:  1000, // Get more history for OK duration analysis
+        Limit:  1000,
     })
     
     if err != nil {
@@ -321,7 +319,7 @@ func (s *Server) getOKDurationInfoWithNames(ctx context.Context, hostID string) 
             }
 
             okDurationInfo[checkID] = &OKDurationInfo{
-                CheckName:  checkName,  // NEW: Include check name
+                CheckName:  checkName,  // IMPORTANT: Include check name
                 OKSince:    okSince,
                 Duration:   durationStr,
                 CheckCount: okCount,
