@@ -131,13 +131,9 @@ func (s *Server) getHosts(c *gin.Context) {
         // Check IP address connectivity
         ipOK, ipLastChecked := s.checkIPAddress(host.IPv4, host.Hostname)
 
-        // CRITICAL: Get soft fail information WITH CHECK NAMES
+        // CHANGE: Use NEW functions with names
         softFailInfo := s.getSoftFailInfoWithNames(c.Request.Context(), host.ID)
-
-        // CRITICAL: Get OK duration information WITH CHECK NAMES
         okDuration := s.getOKDurationInfoWithNames(c.Request.Context(), host.ID)
-
-        // CRITICAL: Get check names mapping for this host
         checkNames := s.getCheckNamesForHost(c.Request.Context(), host.ID)
 
         hostResp := HostResponse{
@@ -148,9 +144,9 @@ func (s *Server) getHosts(c *gin.Context) {
             CheckCount:    0,           // TODO: Count active checks for this host
             IPAddressOK:   ipOK,
             IPLastChecked: ipLastChecked,
-            SoftFailInfo:  softFailInfo,  // This now includes check names
-            OKDuration:    okDuration,    // This now includes check names
-            CheckNames:    checkNames,    // This maps check IDs to names
+            SoftFailInfo:  softFailInfo,
+            OKDuration:    okDuration,
+            CheckNames:    checkNames,    // NEW: Add this line
         }
         response = append(response, hostResp)
     }
@@ -159,175 +155,6 @@ func (s *Server) getHosts(c *gin.Context) {
         "data":  response,
         "count": len(response),
     })
-}
-
-// NEW: Get check names for a host
-func (s *Server) getCheckNamesForHost(ctx context.Context, hostID string) map[string]string {
-    checkNames := make(map[string]string)
-
-    // Get all checks that include this host
-    checks, err := s.store.GetChecks(ctx)
-    if err != nil {
-        logrus.WithError(err).Error("Failed to get checks for host")
-        return checkNames
-    }
-
-    for _, check := range checks {
-        for _, checkHostID := range check.Hosts {
-            if checkHostID == hostID {
-                checkNames[check.ID] = check.Name
-                break
-            }
-        }
-    }
-
-    return checkNames
-}
-
-// ENHANCED: getSoftFailInfoWithNames retrieves soft failure information WITH check names
-func (s *Server) getSoftFailInfoWithNames(ctx context.Context, hostID string) map[string]*SoftFailStatus {
-    softFailInfo := make(map[string]*SoftFailStatus)
-
-    // Get recent statuses for this host to analyze failure patterns
-    statuses, err := s.store.GetStatus(ctx, database.StatusFilters{
-        HostID: hostID,
-        Limit:  100,
-    })
-    
-    if err != nil {
-        logrus.WithError(err).Error("Failed to get status for soft fail analysis")
-        return softFailInfo
-    }
-
-    // Group statuses by check_id and analyze failure patterns
-    checkStatuses := make(map[string][]*database.Status)
-    for i := range statuses {
-        checkID := statuses[i].CheckID
-        if checkStatuses[checkID] == nil {
-            checkStatuses[checkID] = make([]*database.Status, 0)
-        }
-        checkStatuses[checkID] = append(checkStatuses[checkID], &statuses[i])
-    }
-
-    // Analyze each check's failure pattern
-    for checkID, statusList := range checkStatuses {
-        if len(statusList) == 0 {
-            continue
-        }
-
-        // Look for consecutive failures at the start of the list (most recent)
-        consecutiveFails := 0
-        var firstFailTime, lastFailTime time.Time
-        
-        for _, status := range statusList {
-            if status.ExitCode != 0 { // Non-OK status
-                consecutiveFails++
-                lastFailTime = status.Timestamp
-                if firstFailTime.IsZero() {
-                    firstFailTime = status.Timestamp
-                }
-            } else {
-                break // Stop at first OK status
-            }
-        }
-
-        // Only include if there are current failures
-        if consecutiveFails > 0 {
-            // Get the check details including name and threshold
-            check, err := s.store.GetCheck(ctx, checkID)
-            threshold := 3
-            checkName := checkID // fallback to ID if name not found
-            
-            if err == nil {
-                if check.Threshold > 0 {
-                    threshold = check.Threshold
-                }
-                if check.Name != "" {
-                    checkName = check.Name  // Use actual check name
-                }
-            }
-
-            softFailInfo[checkID] = &SoftFailStatus{
-                CheckName:     checkName,     // IMPORTANT: Include check name
-                CurrentFails:  consecutiveFails,
-                ThresholdMax:  threshold,
-                FirstFailTime: firstFailTime,
-                LastFailTime:  lastFailTime,
-            }
-        }
-    }
-
-    return softFailInfo
-}
-
-// ENHANCED: getOKDurationInfoWithNames retrieves information about how long checks have been OK WITH check names
-
-func (s *Server) getOKDurationInfoWithNames(ctx context.Context, hostID string) map[string]*OKDurationInfo {
-    okDurationInfo := make(map[string]*OKDurationInfo)
-
-    // Get recent statuses for this host
-    statuses, err := s.store.GetStatus(ctx, database.StatusFilters{
-        HostID: hostID,
-        Limit:  1000,
-    })
-    
-    if err != nil {
-        logrus.WithError(err).Error("Failed to get status for OK duration analysis")
-        return okDurationInfo
-    }
-
-    // Group statuses by check_id
-    checkStatuses := make(map[string][]*database.Status)
-    for i := range statuses {
-        checkID := statuses[i].CheckID
-        if checkStatuses[checkID] == nil {
-            checkStatuses[checkID] = make([]*database.Status, 0)
-        }
-        checkStatuses[checkID] = append(checkStatuses[checkID], &statuses[i])
-    }
-
-    // Analyze OK duration for each check
-    for checkID, statusList := range checkStatuses {
-        if len(statusList) == 0 {
-            continue
-        }
-
-        // Check if the most recent status is OK
-        if statusList[0].ExitCode == 0 {
-            okSince := statusList[0].Timestamp
-            okCount := 1
-
-            // Count consecutive OK statuses
-            for i := 1; i < len(statusList); i++ {
-                if statusList[i].ExitCode == 0 {
-                    okSince = statusList[i].Timestamp
-                    okCount++
-                } else {
-                    break // Stop at first non-OK status
-                }
-            }
-
-            duration := time.Since(okSince)
-            durationStr := formatDuration(duration)
-
-            // Get check name
-            check, err := s.store.GetCheck(ctx, checkID)
-            checkName := checkID // fallback to ID if name not found
-            
-            if err == nil && check.Name != "" {
-                checkName = check.Name  // Use actual check name
-            }
-
-            okDurationInfo[checkID] = &OKDurationInfo{
-                CheckName:  checkName,  // IMPORTANT: Include check name
-                OKSince:    okSince,
-                Duration:   durationStr,
-                CheckCount: okCount,
-            }
-        }
-    }
-
-    return okDurationInfo
 }
 
 // checkIPAddress performs a basic connectivity test to the host's IP or hostname
@@ -859,4 +686,170 @@ func (s *Server) getAlertsSummary(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{"data": summary})
 }
 
+// getCheckNamesForHost returns a mapping of check IDs to check names for a specific host
+func (s *Server) getCheckNamesForHost(ctx context.Context, hostID string) map[string]string {
+    checkNames := make(map[string]string)
 
+    // Get all checks that include this host
+    checks, err := s.store.GetChecks(ctx)
+    if err != nil {
+        logrus.WithError(err).Error("Failed to get checks for host")
+        return checkNames
+    }
+
+    for _, check := range checks {
+        for _, checkHostID := range check.Hosts {
+            if checkHostID == hostID {
+                checkNames[check.ID] = check.Name
+                break
+            }
+        }
+    }
+
+    return checkNames
+}
+
+// getSoftFailInfoWithNames retrieves soft failure information WITH check names
+func (s *Server) getSoftFailInfoWithNames(ctx context.Context, hostID string) map[string]*SoftFailStatus {
+    softFailInfo := make(map[string]*SoftFailStatus)
+
+    // Get recent statuses for this host to analyze failure patterns
+    statuses, err := s.store.GetStatus(ctx, database.StatusFilters{
+        HostID: hostID,
+        Limit:  100, // Get enough history to analyze patterns
+    })
+    
+    if err != nil {
+        logrus.WithError(err).Error("Failed to get status for soft fail analysis")
+        return softFailInfo
+    }
+
+    // Group statuses by check_id and analyze failure patterns
+    checkStatuses := make(map[string][]*database.Status)
+    for i := range statuses {
+        checkID := statuses[i].CheckID
+        if checkStatuses[checkID] == nil {
+            checkStatuses[checkID] = make([]*database.Status, 0)
+        }
+        checkStatuses[checkID] = append(checkStatuses[checkID], &statuses[i])
+    }
+
+    // Analyze each check's failure pattern
+    for checkID, statusList := range checkStatuses {
+        if len(statusList) == 0 {
+            continue
+        }
+
+        // Look for consecutive failures at the start of the list (most recent)
+        consecutiveFails := 0
+        var firstFailTime, lastFailTime time.Time
+        
+        for _, status := range statusList {
+            if status.ExitCode != 0 { // Non-OK status
+                consecutiveFails++
+                lastFailTime = status.Timestamp
+                if firstFailTime.IsZero() {
+                    firstFailTime = status.Timestamp
+                }
+            } else {
+                break // Stop at first OK status
+            }
+        }
+
+        // Only include if there are current failures
+        if consecutiveFails > 0 {
+            // Get the check details including name and threshold
+            check, err := s.store.GetCheck(ctx, checkID)
+            threshold := 3
+            checkName := checkID // fallback to ID if name not found
+            
+            if err == nil {
+                if check.Threshold > 0 {
+                    threshold = check.Threshold
+                }
+                if check.Name != "" {
+                    checkName = check.Name  // Use actual check name
+                }
+            }
+
+            softFailInfo[checkID] = &SoftFailStatus{
+                CheckName:     checkName,     // IMPORTANT: Include check name
+                CurrentFails:  consecutiveFails,
+                ThresholdMax:  threshold,
+                FirstFailTime: firstFailTime,
+                LastFailTime:  lastFailTime,
+            }
+        }
+    }
+
+    return softFailInfo
+}
+
+// getOKDurationInfoWithNames retrieves information about how long checks have been OK WITH check names
+func (s *Server) getOKDurationInfoWithNames(ctx context.Context, hostID string) map[string]*OKDurationInfo {
+    okDurationInfo := make(map[string]*OKDurationInfo)
+
+    // Get recent statuses for this host
+    statuses, err := s.store.GetStatus(ctx, database.StatusFilters{
+        HostID: hostID,
+        Limit:  1000, // Get more history for OK duration analysis
+    })
+    
+    if err != nil {
+        logrus.WithError(err).Error("Failed to get status for OK duration analysis")
+        return okDurationInfo
+    }
+
+    // Group statuses by check_id
+    checkStatuses := make(map[string][]*database.Status)
+    for i := range statuses {
+        checkID := statuses[i].CheckID
+        if checkStatuses[checkID] == nil {
+            checkStatuses[checkID] = make([]*database.Status, 0)
+        }
+        checkStatuses[checkID] = append(checkStatuses[checkID], &statuses[i])
+    }
+
+    // Analyze OK duration for each check
+    for checkID, statusList := range checkStatuses {
+        if len(statusList) == 0 {
+            continue
+        }
+
+        // Check if the most recent status is OK
+        if statusList[0].ExitCode == 0 {
+            okSince := statusList[0].Timestamp
+            okCount := 1
+
+            // Count consecutive OK statuses
+            for i := 1; i < len(statusList); i++ {
+                if statusList[i].ExitCode == 0 {
+                    okSince = statusList[i].Timestamp
+                    okCount++
+                } else {
+                    break // Stop at first non-OK status
+                }
+            }
+
+            duration := time.Since(okSince)
+            durationStr := formatDuration(duration)
+
+            // Get check name
+            check, err := s.store.GetCheck(ctx, checkID)
+            checkName := checkID // fallback to ID if name not found
+            
+            if err == nil && check.Name != "" {
+                checkName = check.Name  // Use actual check name
+            }
+
+            okDurationInfo[checkID] = &OKDurationInfo{
+                CheckName:  checkName,  // IMPORTANT: Include check name
+                OKSince:    okSince,
+                Duration:   durationStr,
+                CheckCount: okCount,
+            }
+        }
+    }
+
+    return okDurationInfo
+}

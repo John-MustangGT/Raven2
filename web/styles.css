@@ -1608,3 +1608,170 @@ tbody tr:hover {
         font-size: 0.85rem;
     }
 }
+
+/* ADD these styles to the END of web/styles.css */
+
+/* Monitoring Results Container */
+.monitoring-results {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: rgba(59, 130, 246, 0.05);
+    border-radius: 0.5rem;
+    border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.monitoring-section {
+    margin-bottom: 0.5rem;
+}
+
+.monitoring-section:last-child {
+    margin-bottom: 0;
+}
+
+.monitoring-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.monitoring-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.monitoring-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
+}
+
+.monitoring-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Soft Fail Items */
+.soft-fail-item {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.soft-fail-item:hover {
+    background: rgba(245, 158, 11, 0.15);
+}
+
+/* OK Items */
+.ok-item {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.ok-item:hover {
+    background: rgba(16, 185, 129, 0.15);
+}
+
+/* Test Name Display */
+.monitoring-test-name {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.monitoring-test-name i {
+    flex-shrink: 0;
+    width: 16px;
+    font-size: 0.875rem;
+}
+
+/* Monitoring Details */
+.monitoring-details {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-left: 1.5rem;
+    font-size: 0.8rem;
+}
+
+.monitoring-time {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Enhanced status indicators */
+.soft-fail-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-weight: 600;
+    color: var(--warning-color);
+    padding: 0.125rem 0.5rem;
+    background: rgba(245, 158, 11, 0.2);
+    border-radius: 0.25rem;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    font-size: 0.75rem;
+}
+
+.ok-duration {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--success-color);
+    font-weight: 600;
+    padding: 0.125rem 0.5rem;
+    background: rgba(16, 185, 129, 0.2);
+    border-radius: 0.25rem;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    font-size: 0.75rem;
+}
+
+/* Ensure enough space for the enhanced column */
+.table-content th:nth-child(4) {
+    min-width: 300px;
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .monitoring-results {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.25);
+}
+
+[data-theme="dark"] .soft-fail-item {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+[data-theme="dark"] .ok-item {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .monitoring-results {
+        padding: 0.5rem;
+    }
+    
+    .monitoring-details {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+        margin-left: 1rem;
+    }
+    
+    .monitoring-test-name {
+        font-size: 0.85rem;
+    }
+}
