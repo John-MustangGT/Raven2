@@ -47,6 +47,7 @@
 
             <!-- Hosts View -->
             <hosts-view v-if="currentView === 'hosts'"
+                ref="hostsView"
                 :hosts="hosts"
                 :loading="loading"
                 :search-query="searchQuery"

@@ -87,6 +87,10 @@ createApp({
                 darkMode: localStorage.getItem('theme') === 'dark',
                 refreshInterval: 30
             },
+            savedHostsSortState: {
+                sortBy: 'status',
+                sortOrder: 'desc'
+            },
             notification: {
                 show: false,
                 type: '',
@@ -159,6 +163,24 @@ createApp({
                 return this.activeAlerts;
             }
             return this.alerts.filter(alert => alert.severity === this.alertFilter);
+        },
+        
+        sortingInfo() {
+            if (!this.$refs.hostsView) return '';
+            
+            const sortLabels = {
+                'status': 'Host State (Critical First)',
+                'name': 'Name',
+                'group': 'Group',
+                'hostname': 'Hostname/IP',
+                'ip': 'IP Address',
+                'last_check': 'Most Recent Check'
+            };
+            
+            const currentSort = this.$refs.hostsView.sortBy || 'status';
+            const currentOrder = this.$refs.hostsView.sortOrder || 'desc';
+            
+            return `${sortLabels[currentSort]} (${currentOrder === 'asc' ? 'A-Z' : 'Z-A'})`;
         }
     },
     async mounted() {
@@ -194,6 +216,13 @@ createApp({
     methods: {
         // View management
         setView(view) {
+            // Save current sort state when leaving hosts view
+            if (this.currentView === 'hosts' && this.$refs.hostsView) {
+                this.savedHostsSortState = {
+                    sortBy: this.$refs.hostsView.sortBy,
+                    sortOrder: this.$refs.hostsView.sortOrder
+                };
+            }
             // Save current view to history for back navigation
             if (this.currentView !== view) {
                 this.viewHistory.push(this.currentView);
@@ -212,7 +241,14 @@ createApp({
             }
             
             if (view === 'hosts') {
-                this.loadHosts();
+                this.loadHosts().then(() => {
+                    if (this.savedHostsSortState && this.$refs.hostsView) {
+                        this.$nextTick(() => {
+                            this.$refs.hostsView.sortBy = this.savedHostsSortState.sortBy;
+                            this.$refs.hostsView.sortOrder = this.savedHostsSortState.sortOrder;
+                        });
+                    }
+                });
             } else if (view === 'checks') {
                 this.loadChecks();
             } else if (view === 'alerts') {
@@ -224,6 +260,14 @@ createApp({
 
         // Detail view navigation
         async showHostDetail(hostId) {
+            // Save current sort state before navigating away
+            if (this.$refs.hostsView) {
+                this.savedHostsSortState = {
+                    sortBy: this.$refs.hostsView.sortBy,
+                    sortOrder: this.$refs.hostsView.sortOrder
+                };
+            }
+            
             this.loadingHostDetail = true;
             this.loadingHostStatuses = true;
             
@@ -342,6 +386,14 @@ createApp({
         // Detail view event handlers
         backToHosts() {
             this.setView('hosts');
+            
+            // Restore sort state when returning to hosts view
+            if (this.savedHostsSortState && this.$refs.hostsView) {
+                this.$nextTick(() => {
+                    this.$refs.hostsView.sortBy = this.savedHostsSortState.sortBy;
+                    this.$refs.hostsView.sortOrder = this.savedHostsSortState.sortOrder;
+                });
+            }
         },
 
         backToAlerts() {
@@ -625,10 +677,20 @@ createApp({
         },
 
         refreshData() {
+            const currentSort = this.$refs.hostsView?.sortBy;
+            const currentOrder = this.$refs.hostsView?.sortOrder;
+            
             this.loadStats();
             this.loadWebConfig();
             if (this.currentView === 'hosts') {
-                this.loadHosts();
+                this.loadHosts().then(() => {
+                    if (currentSort && this.$refs.hostsView) {
+                        this.$nextTick(() => {
+                            this.$refs.hostsView.sortBy = currentSort;
+                            this.$refs.hostsView.sortOrder = currentOrder;
+                        });
+                    }
+                });
             } else if (this.currentView === 'checks') {
                 this.loadChecks();
             } else if (this.currentView === 'alerts') {
@@ -639,6 +701,29 @@ createApp({
                 this.refreshAlertData();
             }
             window.RavenUtils.showNotification(this, 'success', 'Data refreshed');
+        },
+
+        exportSortedHosts() {
+            if (!this.$refs.hostsView) return;
+            
+            const sortedHosts = this.$refs.hostsView.sortedHosts || this.hosts;
+            const csvContent = window.RavenUtils.exportHostsToCSV(sortedHosts);
+            const sortInfo = this.sortingInfo;
+            const filename = `raven-hosts-sorted-${new Date().toISOString().split('T')[0]}.csv`;
+            
+            window.RavenUtils.downloadCSV(csvContent, filename);
+            window.RavenUtils.showNotification(this, 'success', `Exported ${sortedHosts.length} hosts`);
+        },
+
+        getSortingStats() {
+            if (!this.$refs.hostsView || !this.hosts.length) return null;
+            
+            const sortedHosts = this.$refs.hostsView.sortedHosts || this.hosts;
+            return {
+                total: sortedHosts.length,
+                sortedBy: this.$refs.hostsView.sortBy || 'status',
+                sortOrder: this.$refs.hostsView.sortOrder || 'desc'
+            };
         },
 
         // Utility methods
@@ -690,6 +775,16 @@ createApp({
                 console.error('WebSocket error:', error);
                 this.connected = false;
             };
+        }
+    },
+
+    watch: {
+        sortingInfo: {
+            handler(newInfo, oldInfo) {
+                if (oldInfo && newInfo !== oldInfo) {
+                    console.log(`Hosts sorted by: ${newInfo}`);
+                }
+            }
         }
     }
 }).mount('#app');
