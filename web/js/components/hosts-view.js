@@ -1,4 +1,4 @@
-// REPLACE web/js/components/hosts-view.js ENTIRELY with this:
+// FIXED web/js/components/hosts-view.js
 
 window.HostsView = {
     props: {
@@ -23,55 +23,126 @@ window.HostsView = {
         getIPCheckClass(ipOK) {
             return ipOK ? 'ip-check-ok' : 'ip-check-fail';
         },
-        // NEW: Format check names for display
+        
+        // FIXED: Get check name with better fallback logic
         getCheckNameWithFallback(checkId, host) {
-            // Try to get the check name from the host's check names mapping
+            // Try multiple sources for check name
             if (host.check_names && host.check_names[checkId]) {
                 return host.check_names[checkId];
             }
-            // Fallback to check ID if name not available
-            return checkId;
+            
+            // Try from soft fail info
+            if (host.soft_fail_info && host.soft_fail_info[checkId] && host.soft_fail_info[checkId].check_name) {
+                return host.soft_fail_info[checkId].check_name;
+            }
+            
+            // Try from OK duration info  
+            if (host.ok_duration && host.ok_duration[checkId] && host.ok_duration[checkId].check_name) {
+                return host.ok_duration[checkId].check_name;
+            }
+            
+            // Fallback to formatted check ID
+            return checkId || 'Unknown Check';
         },
-        // NEW: Format soft fail display with check names
+        
+        // FIXED: Format soft fails with better error handling and debugging
         formatSoftFailsForDisplay(softFailInfo, host) {
-            if (!softFailInfo || Object.keys(softFailInfo).length === 0) {
+            console.log('Formatting soft fails for host:', host.name, 'softFailInfo:', softFailInfo);
+            
+            if (!softFailInfo || typeof softFailInfo !== 'object') {
+                console.log('No soft fail info or invalid format');
+                return null;
+            }
+            
+            const keys = Object.keys(softFailInfo);
+            if (keys.length === 0) {
+                console.log('Soft fail info is empty');
                 return null;
             }
 
             const results = [];
             for (const [checkId, failInfo] of Object.entries(softFailInfo)) {
-                const checkName = failInfo.check_name || this.getCheckNameWithFallback(checkId, host);
-                results.push({
+                if (!failInfo || typeof failInfo !== 'object') {
+                    console.log('Invalid fail info for check:', checkId);
+                    continue;
+                }
+                
+                // Get check name with multiple fallback options
+                let checkName = 'Unknown Check';
+                if (failInfo.check_name) {
+                    checkName = failInfo.check_name;
+                } else {
+                    checkName = this.getCheckNameWithFallback(checkId, host);
+                }
+                
+                const result = {
                     checkId: checkId,
                     checkName: checkName,
-                    currentFails: failInfo.current_fails,
-                    thresholdMax: failInfo.threshold_max,
+                    currentFails: failInfo.current_fails || 0,
+                    thresholdMax: failInfo.threshold_max || 3,
                     firstFailTime: failInfo.first_fail_time,
                     lastFailTime: failInfo.last_fail_time
-                });
+                };
+                
+                console.log('Adding soft fail result:', result);
+                results.push(result);
             }
             
-            return results;
+            console.log('Final soft fail results:', results);
+            return results.length > 0 ? results : null;
         },
-        // NEW: Format OK duration display with check names
+        
+        // FIXED: Format OK duration with better error handling
         formatOKDurationForDisplay(okDuration, host) {
-            if (!okDuration || Object.keys(okDuration).length === 0) {
+            console.log('Formatting OK duration for host:', host.name, 'okDuration:', okDuration);
+            
+            if (!okDuration || typeof okDuration !== 'object') {
+                console.log('No OK duration info or invalid format');
+                return null;
+            }
+            
+            const keys = Object.keys(okDuration);
+            if (keys.length === 0) {
+                console.log('OK duration info is empty');
                 return null;
             }
 
             const results = [];
             for (const [checkId, okInfo] of Object.entries(okDuration)) {
-                const checkName = okInfo.check_name || this.getCheckNameWithFallback(checkId, host);
-                results.push({
+                if (!okInfo || typeof okInfo !== 'object') {
+                    console.log('Invalid OK info for check:', checkId);
+                    continue;
+                }
+                
+                // Get check name with multiple fallback options
+                let checkName = 'Unknown Check';
+                if (okInfo.check_name) {
+                    checkName = okInfo.check_name;
+                } else {
+                    checkName = this.getCheckNameWithFallback(checkId, host);
+                }
+                
+                const result = {
                     checkId: checkId,
                     checkName: checkName,
                     okSince: okInfo.ok_since,
-                    duration: okInfo.duration,
-                    checkCount: okInfo.check_count
-                });
+                    duration: okInfo.duration || 'Unknown',
+                    checkCount: okInfo.check_count || 0
+                };
+                
+                console.log('Adding OK duration result:', result);
+                results.push(result);
             }
             
-            return results;
+            console.log('Final OK duration results:', results);
+            return results.length > 0 ? results : null;
+        },
+        
+        // HELPER: Check if host has any monitoring data
+        hasMonitoringData(host) {
+            const hasSoftFails = host.soft_fail_info && Object.keys(host.soft_fail_info).length > 0;
+            const hasOKDuration = host.ok_duration && Object.keys(host.ok_duration).length > 0;
+            return hasSoftFails || hasOKDuration;
         }
     },
     template: `
@@ -105,7 +176,7 @@ window.HostsView = {
                             <th>Name</th>
                             <th>Address</th>
                             <th>Group</th>
-                            <th>Status & Recent Monitoring</th>
+                            <th>Status & Monitoring Details</th>
                             <th>Last Check</th>
                             <th>Actions</th>
                         </tr>
@@ -136,6 +207,7 @@ window.HostsView = {
                             <td>{{ host.group }}</td>
                             <td>
                                 <div class="status-details">
+                                    <!-- Main Status Badge -->
                                     <div class="status-main">
                                         <span class="status-badge" :class="'status-' + host.status">
                                             <div class="status-indicator" :class="'status-' + host.status"></div>
@@ -143,16 +215,18 @@ window.HostsView = {
                                         </span>
                                     </div>
                                     
-                                    <!-- Enhanced: Show soft fail indicators with CHECK NAMES -->
-                                    <div v-if="formatSoftFailsForDisplay(host.soft_fail_info, host)" class="monitoring-results">
-                                        <div class="monitoring-section">
+                                    <!-- FIXED: Enhanced Monitoring Results Display -->
+                                    <div v-if="hasMonitoringData(host)" class="monitoring-results">
+                                        
+                                        <!-- Failing Tests Section -->
+                                        <div v-if="formatSoftFailsForDisplay(host.soft_fail_info, host)" class="monitoring-section">
                                             <div class="monitoring-header">
                                                 <i class="fas fa-exclamation-triangle" style="color: var(--warning-color);"></i>
-                                                <strong>Failing Tests:</strong>
+                                                <strong>Failing Tests ({{ formatSoftFailsForDisplay(host.soft_fail_info, host).length }}):</strong>
                                             </div>
                                             <div class="monitoring-items">
                                                 <div v-for="failInfo in formatSoftFailsForDisplay(host.soft_fail_info, host)" 
-                                                     :key="failInfo.checkId" 
+                                                     :key="'fail-' + failInfo.checkId" 
                                                      class="monitoring-item soft-fail-item">
                                                     <div class="monitoring-test-name">
                                                         <i class="fas fa-vial" style="color: var(--warning-color);"></i>
@@ -169,18 +243,16 @@ window.HostsView = {
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                    
-                                    <!-- Enhanced: Show OK duration with CHECK NAMES -->
-                                    <div v-if="formatOKDurationForDisplay(host.ok_duration, host)" class="monitoring-results">
-                                        <div class="monitoring-section">
+                                        
+                                        <!-- Healthy Tests Section -->
+                                        <div v-if="formatOKDurationForDisplay(host.ok_duration, host)" class="monitoring-section">
                                             <div class="monitoring-header">
                                                 <i class="fas fa-check-circle" style="color: var(--success-color);"></i>
-                                                <strong>Healthy Tests:</strong>
+                                                <strong>Healthy Tests ({{ formatOKDurationForDisplay(host.ok_duration, host).length }}):</strong>
                                             </div>
                                             <div class="monitoring-items">
                                                 <div v-for="okInfo in formatOKDurationForDisplay(host.ok_duration, host)" 
-                                                     :key="okInfo.checkId" 
+                                                     :key="'ok-' + okInfo.checkId" 
                                                      class="monitoring-item ok-item">
                                                     <div class="monitoring-test-name">
                                                         <i class="fas fa-vial" style="color: var(--success-color);"></i>
@@ -198,6 +270,18 @@ window.HostsView = {
                                             </div>
                                         </div>
                                     </div>
+                                    
+                                    <!-- DEBUG: Show raw data in development -->
+                                    <!-- 
+                                    <details style="margin-top: 0.5rem; font-size: 0.8rem;">
+                                        <summary>Debug Data</summary>
+                                        <pre>{{ JSON.stringify({
+                                            soft_fail_info: host.soft_fail_info,
+                                            ok_duration: host.ok_duration,
+                                            check_names: host.check_names
+                                        }, null, 2) }}</pre>
+                                    </details>
+                                    -->
                                 </div>
                             </td>
                             <td>{{ formatTime(host.last_check) }}</td>
