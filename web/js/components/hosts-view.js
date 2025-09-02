@@ -1,4 +1,4 @@
-// FIXED web/js/components/hosts-view.js
+// js/components/hosts-view.js - Updated with clickable host rows
 
 window.HostsView = {
     props: {
@@ -9,7 +9,7 @@ window.HostsView = {
         groups: Array,
         filteredHosts: Array
     },
-    emits: ['update:search-query', 'update:filter-group', 'edit-host', 'delete-host'],
+    emits: ['update:search-query', 'update:filter-group', 'edit-host', 'delete-host', 'view-host-detail'],
     methods: {
         formatTime(timestamp) {
             return window.RavenUtils.formatTime(timestamp);
@@ -24,7 +24,7 @@ window.HostsView = {
             return ipOK ? 'ip-check-ok' : 'ip-check-fail';
         },
         
-        // FIXED: Get check name with better fallback logic
+        // Get check name with better fallback logic
         getCheckNameWithFallback(checkId, host) {
             // Try multiple sources for check name
             if (host.check_names && host.check_names[checkId]) {
@@ -45,25 +45,20 @@ window.HostsView = {
             return checkId || 'Unknown Check';
         },
         
-        // FIXED: Format soft fails with better error handling and debugging
+        // Format soft fails with better error handling and debugging
         formatSoftFailsForDisplay(softFailInfo, host) {
-            console.log('Formatting soft fails for host:', host.name, 'softFailInfo:', softFailInfo);
-            
             if (!softFailInfo || typeof softFailInfo !== 'object') {
-                console.log('No soft fail info or invalid format');
                 return null;
             }
             
             const keys = Object.keys(softFailInfo);
             if (keys.length === 0) {
-                console.log('Soft fail info is empty');
                 return null;
             }
 
             const results = [];
             for (const [checkId, failInfo] of Object.entries(softFailInfo)) {
                 if (!failInfo || typeof failInfo !== 'object') {
-                    console.log('Invalid fail info for check:', checkId);
                     continue;
                 }
                 
@@ -84,33 +79,26 @@ window.HostsView = {
                     lastFailTime: failInfo.last_fail_time
                 };
                 
-                console.log('Adding soft fail result:', result);
                 results.push(result);
             }
             
-            console.log('Final soft fail results:', results);
             return results.length > 0 ? results : null;
         },
         
-        // FIXED: Format OK duration with better error handling
+        // Format OK duration with better error handling
         formatOKDurationForDisplay(okDuration, host) {
-            console.log('Formatting OK duration for host:', host.name, 'okDuration:', okDuration);
-            
             if (!okDuration || typeof okDuration !== 'object') {
-                console.log('No OK duration info or invalid format');
                 return null;
             }
             
             const keys = Object.keys(okDuration);
             if (keys.length === 0) {
-                console.log('OK duration info is empty');
                 return null;
             }
 
             const results = [];
             for (const [checkId, okInfo] of Object.entries(okDuration)) {
                 if (!okInfo || typeof okInfo !== 'object') {
-                    console.log('Invalid OK info for check:', checkId);
                     continue;
                 }
                 
@@ -130,19 +118,34 @@ window.HostsView = {
                     checkCount: okInfo.check_count || 0
                 };
                 
-                console.log('Adding OK duration result:', result);
                 results.push(result);
             }
             
-            console.log('Final OK duration results:', results);
             return results.length > 0 ? results : null;
         },
         
-        // HELPER: Check if host has any monitoring data
+        // Check if host has any monitoring data
         hasMonitoringData(host) {
             const hasSoftFails = host.soft_fail_info && Object.keys(host.soft_fail_info).length > 0;
             const hasOKDuration = host.ok_duration && Object.keys(host.ok_duration).length > 0;
             return hasSoftFails || hasOKDuration;
+        },
+
+        // Handle host click - navigate to detail view
+        handleHostClick(host, event) {
+            // Don't navigate if clicking on action buttons
+            if (event.target.closest('.actions')) {
+                return;
+            }
+            
+            // Don't navigate if clicking on specific interactive elements
+            if (event.target.closest('button') || 
+                event.target.closest('.status-badge') ||
+                event.target.closest('.ip-check-indicator')) {
+                return;
+            }
+            
+            this.$emit('view-host-detail', host.id);
         }
     },
     template: `
@@ -182,7 +185,11 @@ window.HostsView = {
                         </tr>
                     </thead>
                     <tbody>
-                        <tr v-for="(host, index) in filteredHosts" :key="host.id + '-' + index">
+                        <tr v-for="(host, index) in filteredHosts" 
+                            :key="host.id + '-' + index"
+                            class="host-row clickable-row"
+                            @click="handleHostClick(host, $event)"
+                            title="Click to view detailed information">
                             <td>
                                 <div class="host-details">
                                     <div style="font-weight: 500;">{{ host.display_name || host.name }}</div>
@@ -215,7 +222,7 @@ window.HostsView = {
                                         </span>
                                     </div>
                                     
-                                    <!-- FIXED: Enhanced Monitoring Results Display -->
+                                    <!-- Enhanced Monitoring Results Display -->
                                     <div v-if="hasMonitoringData(host)" class="monitoring-results">
                                         
                                         <!-- Failing Tests Section -->
@@ -270,23 +277,11 @@ window.HostsView = {
                                             </div>
                                         </div>
                                     </div>
-                                    
-                                    <!-- DEBUG: Show raw data in development -->
-                                    <!-- 
-                                    <details style="margin-top: 0.5rem; font-size: 0.8rem;">
-                                        <summary>Debug Data</summary>
-                                        <pre>{{ JSON.stringify({
-                                            soft_fail_info: host.soft_fail_info,
-                                            ok_duration: host.ok_duration,
-                                            check_names: host.check_names
-                                        }, null, 2) }}</pre>
-                                    </details>
-                                    -->
                                 </div>
                             </td>
                             <td>{{ formatTime(host.last_check) }}</td>
                             <td>
-                                <div class="actions">
+                                <div class="actions" @click.stop>
                                     <button class="btn btn-secondary btn-small" @click="$emit('edit-host', host)">
                                         <i class="fas fa-edit"></i>
                                     </button>

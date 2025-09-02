@@ -1,4 +1,4 @@
-// js/app.js - Main application
+// js/app.js - Main application with detail views support
 const { createApp } = Vue;
 
 createApp({
@@ -13,11 +13,31 @@ createApp({
         'settings-view': window.SettingsView,
         'host-modal': window.HostModal,
         'check-modal': window.CheckModal,
-        'notification-component': window.NotificationComponent
+        'notification-component': window.NotificationComponent,
+        'host-detail-view': window.HostDetailView,
+        'alert-detail-view': window.AlertDetailView
     },
     data() {
         return {
+            // Navigation
             currentView: 'dashboard',
+            viewHistory: [],
+            
+            // Detail view data
+            currentHostDetail: null,
+            currentAlertDetail: null,
+            hostStatuses: [],
+            alertStatuses: [],
+            affectedHosts: [],
+            
+            // Loading states for detail views
+            loadingHostDetail: false,
+            loadingAlertDetail: false,
+            loadingHostStatuses: false,
+            loadingAlertStatuses: false,
+            loadingAffectedHosts: false,
+            
+            // Existing app state
             theme: localStorage.getItem('theme') || 'light',
             sidebarOpen: false,
             sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === 'true',
@@ -83,7 +103,11 @@ createApp({
                 checks: 'Checks',
                 alerts: 'Alerts',
                 about: 'About',
-                settings: 'Settings'
+                settings: 'Settings',
+                'host-detail': this.currentHostDetail ? 
+                    (this.currentHostDetail.display_name || this.currentHostDetail.name) : 'Host Details',
+                'alert-detail': this.currentAlertDetail ? 
+                    `${this.currentAlertDetail.check_name || this.currentAlertDetail.check} Alert` : 'Alert Details'
             };
             return titles[this.currentView] || 'Dashboard';
         },
@@ -170,8 +194,22 @@ createApp({
     methods: {
         // View management
         setView(view) {
+            // Save current view to history for back navigation
+            if (this.currentView !== view) {
+                this.viewHistory.push(this.currentView);
+            }
+            
             this.currentView = view;
             this.closeSidebar();
+            
+            // Clear detail view data when switching to main views
+            if (!view.includes('-detail')) {
+                this.currentHostDetail = null;
+                this.currentAlertDetail = null;
+                this.hostStatuses = [];
+                this.alertStatuses = [];
+                this.affectedHosts = [];
+            }
             
             if (view === 'hosts') {
                 this.loadHosts();
@@ -182,6 +220,148 @@ createApp({
             } else if (view === 'about') {
                 this.loadBuildInfo();
             }
+        },
+
+        // Detail view navigation
+        async showHostDetail(hostId) {
+            this.loadingHostDetail = true;
+            this.loadingHostStatuses = true;
+            
+            try {
+                // Find host in current hosts array or fetch it
+                let host = this.hosts.find(h => h.id === hostId);
+                if (!host) {
+                    // If not found in current list, try to fetch it directly
+                    const response = await axios.get(`/api/hosts/${hostId}`);
+                    host = response.data.data;
+                }
+                
+                if (!host) {
+                    throw new Error('Host not found');
+                }
+                
+                this.currentHostDetail = host;
+                
+                // Load host statuses
+                try {
+                    const statusResponse = await axios.get(`/api/status?host_id=${hostId}&limit=50`);
+                    this.hostStatuses = statusResponse.data.data || [];
+                } catch (error) {
+                    console.error('Failed to load host statuses:', error);
+                    this.hostStatuses = [];
+                }
+                
+                // Navigate to detail view
+                this.setView('host-detail');
+                
+            } catch (error) {
+                console.error('Failed to load host details:', error);
+                window.RavenUtils.showNotification(this, 'error', 'Failed to load host details');
+            } finally {
+                this.loadingHostDetail = false;
+                this.loadingHostStatuses = false;
+            }
+        },
+
+        async showAlertDetail(alert) {
+            this.loadingAlertDetail = true;
+            this.loadingAlertStatuses = true;
+            this.loadingAffectedHosts = true;
+            
+            try {
+                this.currentAlertDetail = alert;
+                
+                // Load all statuses related to this alert/check
+                try {
+                    const statusResponse = await axios.get(`/api/status?check_id=${alert.check}&limit=100`);
+                    this.alertStatuses = statusResponse.data.data || [];
+                } catch (error) {
+                    console.error('Failed to load alert statuses:', error);
+                    this.alertStatuses = [];
+                }
+                
+                // Find all hosts affected by this specific alert
+                try {
+                    const hostResponse = await axios.get('/api/hosts');
+                    const allHosts = hostResponse.data.data || [];
+                    
+                    // Filter hosts that have this specific alert
+                    this.affectedHosts = allHosts.filter(host => {
+                        // Check if host has soft fail info for this check
+                        if (host.soft_fail_info) {
+                            for (const [checkId, failInfo] of Object.entries(host.soft_fail_info)) {
+                                if (checkId === alert.check || 
+                                    failInfo.check_name === alert.check_name ||
+                                    failInfo.check_name === alert.check) {
+                                    return true;
+                                }
+                            }
+                        }
+                        
+                        // Or check if host appears in alert statuses
+                        return this.alertStatuses.some(status => 
+                            status.host_id === host.id && status.exit_code > 0
+                        );
+                    });
+                } catch (error) {
+                    console.error('Failed to load affected hosts:', error);
+                    this.affectedHosts = [];
+                }
+                
+                // Navigate to detail view
+                this.setView('alert-detail');
+                
+            } catch (error) {
+                console.error('Failed to load alert details:', error);
+                window.RavenUtils.showNotification(this, 'error', 'Failed to load alert details');
+            } finally {
+                this.loadingAlertDetail = false;
+                this.loadingAlertStatuses = false;
+                this.loadingAffectedHosts = false;
+            }
+        },
+
+        // Back navigation
+        goBack() {
+            if (this.viewHistory.length > 0) {
+                const previousView = this.viewHistory.pop();
+                this.currentView = previousView;
+                
+                // Clear detail data when going back
+                this.currentHostDetail = null;
+                this.currentAlertDetail = null;
+                this.hostStatuses = [];
+                this.alertStatuses = [];
+                this.affectedHosts = [];
+            } else {
+                // Default back to dashboard
+                this.setView('dashboard');
+            }
+        },
+
+        // Detail view event handlers
+        backToHosts() {
+            this.setView('hosts');
+        },
+
+        backToAlerts() {
+            this.setView('alerts');
+        },
+
+        async refreshHostData() {
+            if (this.currentHostDetail) {
+                await this.showHostDetail(this.currentHostDetail.id);
+            }
+        },
+
+        async refreshAlertData() {
+            if (this.currentAlertDetail) {
+                await this.showAlertDetail(this.currentAlertDetail);
+            }
+        },
+
+        viewHostDetailFromAlert(hostId) {
+            this.showHostDetail(hostId);
         },
 
         // Data loading methods
@@ -232,8 +412,12 @@ createApp({
                         timestamp: status.timestamp,
                         host: status.host_id,
                         check: status.check_id,
+                        host_name: status.host_name,
+                        check_name: status.check_name,
                         status: window.RavenUtils.getStatusName(status.exit_code),
-                        message: status.output
+                        message: status.output,
+                        soft_fails_info: status.soft_fails_info,
+                        ok_info: status.ok_info
                     }));
             } catch (error) {
                 console.error('Failed to load stats:', error);
@@ -253,8 +437,11 @@ createApp({
                         severity: window.RavenUtils.getStatusName(status.exit_code),
                         host: status.host_id,
                         check: status.check_id,
+                        host_name: status.host_name,
+                        check_name: status.check_name,
                         message: status.output || 'No message',
-                        duration: window.RavenUtils.calculateDuration(status.timestamp)
+                        duration: window.RavenUtils.calculateDuration(status.timestamp),
+                        soft_fails_info: status.soft_fails_info
                     }))
                     .sort((a, b) => {
                         const severityOrder = { critical: 3, warning: 2, unknown: 1 };
@@ -446,6 +633,10 @@ createApp({
                 this.loadChecks();
             } else if (this.currentView === 'alerts') {
                 this.loadAlerts();
+            } else if (this.currentView === 'host-detail') {
+                this.refreshHostData();
+            } else if (this.currentView === 'alert-detail') {
+                this.refreshAlertData();
             }
             window.RavenUtils.showNotification(this, 'success', 'Data refreshed');
         },
@@ -481,6 +672,10 @@ createApp({
                     this.loadStats();
                     if (this.currentView === 'hosts') {
                         this.loadHosts();
+                    } else if (this.currentView === 'host-detail') {
+                        this.refreshHostData();
+                    } else if (this.currentView === 'alert-detail') {
+                        this.refreshAlertData();
                     }
                 }
             };

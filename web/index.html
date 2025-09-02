@@ -56,8 +56,19 @@
                 @update:search-query="searchQuery = $event"
                 @update:filter-group="filterGroup = $event"
                 @edit-host="editHost"
-                @delete-host="deleteHost">
+                @delete-host="deleteHost"
+                @view-host-detail="showHostDetail">
             </hosts-view>
+
+            <!-- Host Detail View -->
+            <host-detail-view v-if="currentView === 'host-detail'"
+                :host="currentHostDetail"
+                :host-statuses="hostStatuses"
+                :loading="loadingHostDetail"
+                :loading-statuses="loadingHostStatuses"
+                @back-to-hosts="backToHosts"
+                @refresh-host-data="refreshHostData">
+            </host-detail-view>
 
             <!-- Checks View -->
             <checks-view v-if="currentView === 'checks'"
@@ -81,8 +92,21 @@
                 :alert-metrics="alertMetrics"
                 :alert-filter="alertFilter"
                 :filtered-alerts="filteredAlerts"
-                @update:alert-filter="alertFilter = $event">
+                @update:alert-filter="alertFilter = $event"
+                @view-alert-detail="showAlertDetail">
             </alerts-view>
+
+            <!-- Alert Detail View -->
+            <alert-detail-view v-if="currentView === 'alert-detail'"
+                :alert="currentAlertDetail"
+                :affected-hosts="affectedHosts"
+                :alert-statuses="alertStatuses"
+                :loading="loadingAlertDetail"
+                :loading-hosts="loadingAffectedHosts"
+                @back-to-alerts="backToAlerts"
+                @refresh-alert-data="refreshAlertData"
+                @view-host-detail="viewHostDetailFromAlert">
+            </alert-detail-view>
 
             <!-- About View -->
             <about-view v-if="currentView === 'about'"
@@ -135,8 +159,10 @@
     <script src="js/components/header.js"></script>
     <script src="js/components/dashboard-view.js"></script>
     <script src="js/components/hosts-view.js"></script>
+    <script src="js/components/host-detail-view.js"></script>
     <script src="js/components/checks-view.js"></script>
     <script src="js/components/alerts-view.js"></script>
+    <script src="js/components/alert-detail-view.js"></script>
     <script src="js/components/about-view.js"></script>
     <script src="js/components/settings-view.js"></script>
     <script src="js/components/host-modal.js"></script>

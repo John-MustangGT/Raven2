@@ -1,4 +1,4 @@
-// js/components/alerts-view.js - Enhanced with soft fail tracking
+// js/components/alerts-view.js - Updated with clickable alert rows
 window.AlertsView = {
     props: {
         alerts: Array,
@@ -7,7 +7,7 @@ window.AlertsView = {
         alertFilter: String,
         filteredAlerts: Array
     },
-    emits: ['update:alert-filter'],
+    emits: ['update:alert-filter', 'view-alert-detail'],
     methods: {
         formatTime(timestamp) {
             return window.RavenUtils.formatTime(timestamp);
@@ -17,6 +17,31 @@ window.AlertsView = {
         },
         formatSoftFailStatus(softFailInfo) {
             return window.RavenUtils.formatSoftFailStatus(softFailInfo);
+        },
+        getSeverityIcon(severity) {
+            switch (severity) {
+                case 'critical': return 'fas fa-times-circle';
+                case 'warning': return 'fas fa-exclamation-triangle';
+                case 'unknown': return 'fas fa-question-circle';
+                default: return 'fas fa-info-circle';
+            }
+        },
+
+        // Handle alert click - navigate to detail view
+        handleAlertClick(alert, event) {
+            // Don't navigate if clicking on interactive elements
+            if (event.target.closest('button') || 
+                event.target.closest('.status-badge') ||
+                event.target.closest('a')) {
+                return;
+            }
+            
+            this.$emit('view-alert-detail', alert);
+        },
+
+        getSeverityPriority(severity) {
+            const priorities = { critical: 3, warning: 2, unknown: 1 };
+            return priorities[severity] || 0;
         }
     },
     template: `
@@ -102,16 +127,39 @@ window.AlertsView = {
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="alert in filteredAlerts" :key="alert.id">
+                            <tr v-for="alert in filteredAlerts" 
+                                :key="alert.id"
+                                class="alert-row clickable-row"
+                                :class="'priority-' + (getSeverityPriority(alert.severity) >= 3 ? 'high' : 
+                                                      getSeverityPriority(alert.severity) >= 2 ? 'medium' : 'low')"
+                                @click="handleAlertClick(alert, $event)"
+                                title="Click to view detailed alert information">
                                 <td>{{ formatTime(alert.timestamp) }}</td>
                                 <td>
                                     <span class="status-badge" :class="'status-' + alert.severity">
                                         <div class="status-indicator" :class="'status-' + alert.severity"></div>
+                                        <i :class="getSeverityIcon(alert.severity)" style="margin-right: 0.25rem;"></i>
                                         {{ alert.severity.toUpperCase() }}
                                     </span>
                                 </td>
-                                <td>{{ alert.host_name || alert.host }}</td>
-                                <td>{{ alert.check_name || alert.check }}</td>
+                                <td>
+                                    <div>
+                                        <div style="font-weight: 500;">{{ alert.host_name || alert.host }}</div>
+                                        <div v-if="alert.host_name && alert.host_name !== alert.host" 
+                                             style="font-size: 0.875rem; color: var(--text-muted);">
+                                            {{ alert.host }}
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div>
+                                        <div style="font-weight: 500;">{{ alert.check_name || alert.check }}</div>
+                                        <div v-if="alert.check_name && alert.check_name !== alert.check" 
+                                             style="font-size: 0.875rem; color: var(--text-muted);">
+                                            {{ alert.check }}
+                                        </div>
+                                    </div>
+                                </td>
                                 <td>
                                     <div class="status-details">
                                         <div>{{ alert.message }}</div>
@@ -122,7 +170,14 @@ window.AlertsView = {
                                         </div>
                                     </div>
                                 </td>
-                                <td>{{ formatDuration(alert.duration) }}</td>
+                                <td>
+                                    <div>
+                                        <div style="font-weight: 500;">{{ formatDuration(alert.duration) }}</div>
+                                        <div style="font-size: 0.875rem; color: var(--text-muted);">
+                                            {{ alert.severity === 'critical' ? 'Critical duration' : 'Alert age' }}
+                                        </div>
+                                    </div>
+                                </td>
                             </tr>
                         </tbody>
                     </table>
