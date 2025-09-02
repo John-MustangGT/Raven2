@@ -7,6 +7,7 @@ import (
     "sync"
     "time"
     "fmt"
+    "strings"
 
     "github.com/sirupsen/logrus"
     "raven2/internal/database"
@@ -48,6 +49,12 @@ type Worker struct {
     quit    chan bool
 }
 
+// StateTracker manages soft fail logic for host/check combinations
+type StateTracker struct {
+    states map[string]*StateInfo
+    mu     sync.RWMutex
+}
+
 type StateInfo struct {
     CurrentState     int       // The state we're reporting (what's stored in DB)
     PendingState     int       // The state we're seeing in checks
@@ -64,6 +71,12 @@ func NewScheduler(engine *Engine) *Scheduler {
         jobQueue:     make(chan *Job, 1000),
         resultQueue:  make(chan *JobResult, 1000),
         stateTracker: NewStateTracker(),
+    }
+}
+
+func NewStateTracker() *StateTracker {
+    return &StateTracker{
+        states: make(map[string]*StateInfo),
     }
 }
 

@@ -2,8 +2,6 @@
 package monitoring
 
 import (
-    "fmt"
-    "strings"
     "context"
     "sync"
     "time"
