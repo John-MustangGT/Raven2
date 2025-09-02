@@ -1,4 +1,4 @@
-// internal/monitoring/scheduler.go - Enhanced with soft fail logic
+// internal/monitoring/scheduler.go - Enhanced with notification integration
 package monitoring
 
 import (
@@ -48,12 +48,6 @@ type Worker struct {
     quit    chan bool
 }
 
-// StateTracker manages soft fail logic for host/check combinations
-type StateTracker struct {
-    states map[string]*StateInfo
-    mu     sync.RWMutex
-}
-
 type StateInfo struct {
     CurrentState     int       // The state we're reporting (what's stored in DB)
     PendingState     int       // The state we're seeing in checks
@@ -73,12 +67,6 @@ func NewScheduler(engine *Engine) *Scheduler {
     }
 }
 
-func NewStateTracker() *StateTracker {
-    return &StateTracker{
-        states: make(map[string]*StateInfo),
-    }
-}
-
 func (s *Scheduler) Start(ctx context.Context) error {
     s.mu.Lock()
     defer s.mu.Unlock()
@@ -88,7 +76,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
     }
 
     s.running = true
-    logrus.Info("Starting scheduler with soft fail support")
+    logrus.Info("Starting scheduler with soft fail support and notifications")
 
     // Initialize state tracker from existing database states
     if err := s.initializeStateTracker(); err != nil {
@@ -192,9 +180,6 @@ func (s *Scheduler) getThreshold(check *database.Check) int {
 }
 
 func (s *Scheduler) isSoftFailEnabled(check *database.Check) bool {
-    // For database checks, we don't have the SoftFailEnabled field from config
-    // So we use the threshold to determine if soft fail should be enabled
-    // and rely on the global setting
     threshold := s.getThreshold(check)
     return s.engine.config.Monitoring.SoftFailEnabled && threshold > 1
 }
@@ -375,6 +360,15 @@ func (s *Scheduler) handleResult(result *JobResult) {
     if err := s.engine.store.UpdateStatus(ctx, status); err != nil {
         logrus.WithError(err).Error("Failed to store status")
         return
+    }
+
+    // IMPORTANT: Process status change for notifications
+    // This must be called AFTER storing the status but before metrics
+    if err := s.engine.ProcessStatusChange(ctx, result); err != nil {
+        logrus.WithError(err).WithFields(logrus.Fields{
+            "host":  result.Job.Host.Name,
+            "check": result.Job.Check.Name,
+        }).Error("Failed to process status change for notifications")
     }
 
     // Record metrics using the reported state

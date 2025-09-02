@@ -1,4 +1,4 @@
-// js/app.js - Main application
+// js/app.js - Main application with Pushover notifications support
 const { createApp } = Vue;
 
 createApp({
@@ -9,6 +9,7 @@ createApp({
         'hosts-view': window.HostsView,
         'checks-view': window.ChecksView,
         'alerts-view': window.AlertsView,
+        'notifications-view': window.NotificationsView, // NEW: Notifications view
         'about-view': window.AboutView,
         'settings-view': window.SettingsView,
         'host-modal': window.HostModal,
@@ -72,7 +73,13 @@ createApp({
                 type: '',
                 message: ''
             },
-            websocket: null
+            websocket: null,
+            // NEW: Notification-related state
+            notificationStats: {
+                enabled: false,
+                pushover_enabled: false,
+                recent_notifications: 0
+            }
         }
     },
     computed: {
@@ -82,6 +89,7 @@ createApp({
                 hosts: 'Hosts',
                 checks: 'Checks',
                 alerts: 'Alerts',
+                notifications: 'Notifications', // NEW
                 about: 'About',
                 settings: 'Settings'
             };
@@ -141,12 +149,14 @@ createApp({
         document.documentElement.setAttribute('data-theme', this.theme);
         await this.loadWebConfig();
         await this.loadHosts();
+        await this.loadNotificationStats(); // NEW: Load notification stats
         this.connectWebSocket();
         await this.loadStats();
         
         // Auto-refresh data
         setInterval(() => {
             this.loadStats();
+            this.loadNotificationStats(); // NEW: Include in refresh cycle
             if (this.currentView === 'hosts') {
                 this.loadHosts();
             } else if (this.currentView === 'checks') {
@@ -179,6 +189,8 @@ createApp({
                 this.loadChecks();
             } else if (view === 'alerts') {
                 this.loadAlerts();
+            } else if (view === 'notifications') { // NEW
+                this.loadNotificationStats();
             } else if (view === 'about') {
                 this.loadBuildInfo();
             }
@@ -237,6 +249,22 @@ createApp({
                     }));
             } catch (error) {
                 console.error('Failed to load stats:', error);
+            }
+        },
+
+        // NEW: Load notification statistics
+        async loadNotificationStats() {
+            try {
+                const response = await axios.get('/api/notifications/stats');
+                this.notificationStats = response.data.data;
+            } catch (error) {
+                console.error('Failed to load notification stats:', error);
+                // Set defaults if API call fails
+                this.notificationStats = {
+                    enabled: false,
+                    pushover_enabled: false,
+                    recent_notifications: 0
+                };
             }
         },
 
@@ -432,6 +460,21 @@ createApp({
             }
         },
 
+        // NEW: Notification management methods
+        handleSaveNotificationSettings() {
+            this.saving = true;
+            // The NotificationsView component will handle the actual saving
+            // This is just to show the loading state in the parent
+        },
+
+        handleTestNotification() {
+            // The NotificationsView component handles the test notification
+            // We just need to reload stats after a successful test
+            setTimeout(() => {
+                this.loadNotificationStats();
+            }, 2000);
+        },
+
         // Settings actions
         exportConfig() {
             window.RavenUtils.showNotification(this, 'info', 'Configuration export not implemented yet');
@@ -440,6 +483,7 @@ createApp({
         refreshData() {
             this.loadStats();
             this.loadWebConfig();
+            this.loadNotificationStats(); // NEW: Include notification stats in refresh
             if (this.currentView === 'hosts') {
                 this.loadHosts();
             } else if (this.currentView === 'checks') {
@@ -482,6 +526,9 @@ createApp({
                     if (this.currentView === 'hosts') {
                         this.loadHosts();
                     }
+                } else if (message.type === 'notification_sent') { // NEW: Handle notification events
+                    this.loadNotificationStats();
+                    // Could show a brief indicator that a notification was sent
                 }
             };
             

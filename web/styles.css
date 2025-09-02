@@ -1775,3 +1775,183 @@ tbody tr:hover {
         font-size: 0.85rem;
     }
 }
+
+/* Add these styles to the end of web/styles.css for sidebar notification indicators */
+
+/* Notification status badge (expanded sidebar) */
+.notification-status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    font-size: 0.6rem;
+    margin-left: auto;
+    opacity: 0.8;
+    transition: all 0.2s ease;
+}
+
+.notification-status-badge.active {
+    background: rgba(16, 185, 129, 0.2);
+    color: var(--success-color);
+}
+
+.notification-status-badge.inactive {
+    background: rgba(245, 158, 11, 0.2);
+    color: var(--warning-color);
+}
+
+.notification-status-badge.disabled {
+    background: rgba(156, 163, 175, 0.2);
+    color: var(--text-muted);
+}
+
+/* Notification status dot (collapsed sidebar) */
+.notification-status-dot {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 2px solid var(--card-bg);
+    transition: all 0.2s ease;
+}
+
+.notification-status-dot.active {
+    background: var(--success-color);
+}
+
+.notification-status-dot.inactive {
+    background: var(--warning-color);
+}
+
+.notification-status-dot.disabled {
+    background: var(--text-muted);
+}
+
+/* Sidebar footer for collapsed view */
+.sidebar-footer {
+    position: absolute;
+    bottom: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    transition: all 0.2s ease;
+}
+
+.sidebar-footer:hover {
+    background: rgba(59, 130, 246, 0.15);
+    transform: translateX(-50%) translateY(-2px);
+}
+
+.notification-status-compact {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.notification-status-compact .fas {
+    font-size: 0.875rem;
+}
+
+.notification-status-compact .status-active {
+    color: var(--success-color);
+}
+
+.notification-status-compact .status-inactive {
+    color: var(--warning-color);
+}
+
+.notification-status-compact .status-disabled {
+    color: var(--text-muted);
+}
+
+/* Enhanced nav-link for notifications */
+.nav-link .notification-status-badge:hover {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+/* Animation for notification status changes */
+@keyframes pulse-notification {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(1.05);
+    }
+}
+
+.notification-status-badge.active,
+.notification-status-dot.active {
+    animation: pulse-notification 2s infinite;
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .sidebar-footer {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+[data-theme="dark"] .sidebar-footer:hover {
+    background: rgba(59, 130, 246, 0.2);
+}
+
+[data-theme="dark"] .notification-status-badge.active {
+    background: rgba(16, 185, 129, 0.3);
+}
+
+[data-theme="dark"] .notification-status-badge.inactive {
+    background: rgba(245, 158, 11, 0.3);
+}
+
+[data-theme="dark"] .notification-status-badge.disabled {
+    background: rgba(156, 163, 175, 0.3);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 1024px) {
+    .sidebar-footer {
+        display: none; /* Hide footer on mobile */
+    }
+    
+    .notification-status-dot {
+        width: 6px;
+        height: 6px;
+        border: 1px solid var(--card-bg);
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .notification-status-badge,
+    .notification-status-dot {
+        border: 2px solid;
+    }
+    
+    .notification-status-badge.active,
+    .notification-status-dot.active {
+        border-color: var(--success-color);
+    }
+    
+    .notification-status-badge.inactive,
+    .notification-status-dot.inactive {
+        border-color: var(--warning-color);
+    }
+    
+    .notification-status-badge.disabled,
+    .notification-status-dot.disabled {
+        border-color: var(--text-muted);
+    }
+}

@@ -1,4 +1,4 @@
-// internal/config/config.go - Enhanced with soft fail threshold support
+// internal/config/config.go - Enhanced with Pushover notification support
 package config
 
 import (
@@ -12,15 +12,47 @@ import (
 )
 
 type Config struct {
-    Server     ServerConfig     `yaml:"server"`
-    Web        WebConfig        `yaml:"web"`
-    Database   DatabaseConfig   `yaml:"database"`
-    Prometheus PrometheusConfig `yaml:"prometheus"`
-    Monitoring MonitoringConfig `yaml:"monitoring"`
-    Logging    LoggingConfig    `yaml:"logging"`
-    Hosts      []HostConfig     `yaml:"hosts"`
-    Checks     []CheckConfig    `yaml:"checks"`
-    Include    IncludeConfig    `yaml:"include"`
+    Server       ServerConfig       `yaml:"server"`
+    Web          WebConfig          `yaml:"web"`
+    Database     DatabaseConfig     `yaml:"database"`
+    Prometheus   PrometheusConfig   `yaml:"prometheus"`
+    Monitoring   MonitoringConfig   `yaml:"monitoring"`
+    Logging      LoggingConfig      `yaml:"logging"`
+    Notifications NotificationConfig `yaml:"notifications"` // NEW: Notification configuration
+    Hosts        []HostConfig       `yaml:"hosts"`
+    Checks       []CheckConfig      `yaml:"checks"`
+    Include      IncludeConfig      `yaml:"include"`
+}
+
+// NEW: Notification configuration
+type NotificationConfig struct {
+    Enabled  bool           `yaml:"enabled"`
+    Pushover PushoverConfig `yaml:"pushover"`
+    // Future: Email, Slack, Discord, etc.
+}
+
+// NEW: Pushover-specific configuration
+type PushoverConfig struct {
+    Enabled     bool              `yaml:"enabled"`
+    APIToken    string            `yaml:"api_token"`
+    UserKey     string            `yaml:"user_key"`
+    Priority    int               `yaml:"priority"`      // -2 (silent), -1 (quiet), 0 (normal), 1 (high), 2 (emergency)
+    Retry       int               `yaml:"retry"`         // For emergency priority (seconds)
+    Expire      int               `yaml:"expire"`        // For emergency priority (seconds)
+    Sound       string            `yaml:"sound"`         // notification sound
+    Device      string            `yaml:"device"`        // specific device name (optional)
+    Title       string            `yaml:"title"`         // notification title template
+    Template    string            `yaml:"template"`      // message template
+    OnlyOnState []string          `yaml:"only_on_state"` // Only notify for specific states: critical, warning, recovery
+    Throttle    ThrottleConfig    `yaml:"throttle"`      // Rate limiting
+}
+
+// NEW: Notification throttling configuration
+type ThrottleConfig struct {
+    Enabled     bool          `yaml:"enabled"`
+    Window      time.Duration `yaml:"window"`       // Time window for throttling
+    MaxPerHost  int           `yaml:"max_per_host"` // Max notifications per host in window
+    MaxTotal    int           `yaml:"max_total"`    // Max total notifications in window
 }
 
 type IncludeConfig struct {
@@ -66,8 +98,8 @@ type MonitoringConfig struct {
     MaxRetries        int           `yaml:"max_retries"`
     Timeout           time.Duration `yaml:"timeout"`
     BatchSize         int           `yaml:"batch_size"`
-    DefaultThreshold  int           `yaml:"default_threshold"`  // Default soft fail threshold
-    SoftFailEnabled   bool          `yaml:"soft_fail_enabled"`  // Global soft fail enable/disable
+    DefaultThreshold  int           `yaml:"default_threshold"`
+    SoftFailEnabled   bool          `yaml:"soft_fail_enabled"`
 }
 
 type LoggingConfig struct {
@@ -92,8 +124,8 @@ type CheckConfig struct {
     Type            string                   `yaml:"type"`
     Hosts           []string                 `yaml:"hosts"`
     Interval        map[string]time.Duration `yaml:"interval"`
-    Threshold       int                      `yaml:"threshold"`         // Soft fail threshold (overrides default)
-    SoftFailEnabled *bool                    `yaml:"soft_fail_enabled"` // Per-check soft fail override (nil = use global)
+    Threshold       int                      `yaml:"threshold"`
+    SoftFailEnabled *bool                    `yaml:"soft_fail_enabled"`
     Timeout         time.Duration            `yaml:"timeout"`
     Enabled         bool                     `yaml:"enabled"`
     Options         map[string]interface{}   `yaml:"options"`
@@ -101,14 +133,15 @@ type CheckConfig struct {
 
 // PartialConfig represents a partial configuration that can be merged
 type PartialConfig struct {
-    Server     *ServerConfig     `yaml:"server,omitempty"`
-    Web        *WebConfig        `yaml:"web,omitempty"`
-    Database   *DatabaseConfig   `yaml:"database,omitempty"`
-    Prometheus *PrometheusConfig `yaml:"prometheus,omitempty"`
-    Monitoring *MonitoringConfig `yaml:"monitoring,omitempty"`
-    Logging    *LoggingConfig    `yaml:"logging,omitempty"`
-    Hosts      []HostConfig      `yaml:"hosts,omitempty"`
-    Checks     []CheckConfig     `yaml:"checks,omitempty"`
+    Server        *ServerConfig        `yaml:"server,omitempty"`
+    Web           *WebConfig           `yaml:"web,omitempty"`
+    Database      *DatabaseConfig      `yaml:"database,omitempty"`
+    Prometheus    *PrometheusConfig    `yaml:"prometheus,omitempty"`
+    Monitoring    *MonitoringConfig    `yaml:"monitoring,omitempty"`
+    Logging       *LoggingConfig       `yaml:"logging,omitempty"`
+    Notifications *NotificationConfig  `yaml:"notifications,omitempty"` // NEW
+    Hosts         []HostConfig         `yaml:"hosts,omitempty"`
+    Checks        []CheckConfig        `yaml:"checks,omitempty"`
 }
 
 func Load(filename string) (*Config, error) {
@@ -258,6 +291,55 @@ func mergePartialConfig(config *Config, partial *PartialConfig) {
     if partial.Logging != nil {
         mergeLoggingConfig(&config.Logging, partial.Logging)
     }
+
+    // NEW: Merge notification config
+    if partial.Notifications != nil {
+        mergeNotificationConfig(&config.Notifications, partial.Notifications)
+    }
+}
+
+// NEW: Merge notification configuration
+func mergeNotificationConfig(main *NotificationConfig, partial *NotificationConfig) {
+    main.Enabled = partial.Enabled
+    
+    // Merge Pushover config
+    if partial.Pushover.APIToken != "" {
+        main.Pushover.APIToken = partial.Pushover.APIToken
+    }
+    if partial.Pushover.UserKey != "" {
+        main.Pushover.UserKey = partial.Pushover.UserKey
+    }
+    if partial.Pushover.Priority != 0 || !main.Pushover.Enabled {
+        main.Pushover.Priority = partial.Pushover.Priority
+    }
+    if partial.Pushover.Retry != 0 {
+        main.Pushover.Retry = partial.Pushover.Retry
+    }
+    if partial.Pushover.Expire != 0 {
+        main.Pushover.Expire = partial.Pushover.Expire
+    }
+    if partial.Pushover.Sound != "" {
+        main.Pushover.Sound = partial.Pushover.Sound
+    }
+    if partial.Pushover.Device != "" {
+        main.Pushover.Device = partial.Pushover.Device
+    }
+    if partial.Pushover.Title != "" {
+        main.Pushover.Title = partial.Pushover.Title
+    }
+    if partial.Pushover.Template != "" {
+        main.Pushover.Template = partial.Pushover.Template
+    }
+    if len(partial.Pushover.OnlyOnState) > 0 {
+        main.Pushover.OnlyOnState = partial.Pushover.OnlyOnState
+    }
+    
+    main.Pushover.Enabled = partial.Pushover.Enabled
+    
+    // Merge throttle config
+    if partial.Pushover.Throttle.Enabled {
+        main.Pushover.Throttle = partial.Pushover.Throttle
+    }
 }
 
 func mergeChecks(config *Config, newChecks []CheckConfig) {
@@ -374,7 +456,7 @@ func mergeDatabaseConfig(main *DatabaseConfig, partial *DatabaseConfig) {
 }
 
 func mergePrometheusConfig(main *PrometheusConfig, partial *PrometheusConfig) {
-    main.Enabled = partial.Enabled // Always take the partial value for boolean
+    main.Enabled = partial.Enabled
     if partial.MetricsPath != "" {
         main.MetricsPath = partial.MetricsPath
     }
@@ -399,7 +481,6 @@ func mergeMonitoringConfig(main *MonitoringConfig, partial *MonitoringConfig) {
     if partial.DefaultThreshold != 0 {
         main.DefaultThreshold = partial.DefaultThreshold
     }
-    // For boolean, always take partial value
     main.SoftFailEnabled = partial.SoftFailEnabled
 }
 
@@ -450,7 +531,7 @@ func setDefaults(cfg *Config) {
         cfg.Monitoring.DefaultInterval = 5 * time.Minute
     }
     if cfg.Monitoring.DefaultThreshold == 0 {
-        cfg.Monitoring.DefaultThreshold = 3 // Default to 3 consecutive failures
+        cfg.Monitoring.DefaultThreshold = 3
     }
     if cfg.Monitoring.Timeout == 0 {
         cfg.Monitoring.Timeout = 30 * time.Second
@@ -467,6 +548,30 @@ func setDefaults(cfg *Config) {
     }
     if cfg.Logging.Format == "" {
         cfg.Logging.Format = "text"
+    }
+    
+    // NEW: Notification defaults
+    if cfg.Notifications.Pushover.Title == "" {
+        cfg.Notifications.Pushover.Title = "Raven Alert: {{.Host}}"
+    }
+    if cfg.Notifications.Pushover.Template == "" {
+        cfg.Notifications.Pushover.Template = "{{.Check}} on {{.Host}} is {{.Status}}: {{.Output}}"
+    }
+    if len(cfg.Notifications.Pushover.OnlyOnState) == 0 {
+        cfg.Notifications.Pushover.OnlyOnState = []string{"critical", "warning", "recovery"}
+    }
+    if cfg.Notifications.Pushover.Sound == "" {
+        cfg.Notifications.Pushover.Sound = "pushover"
+    }
+    // Throttle defaults
+    if cfg.Notifications.Pushover.Throttle.Window == 0 {
+        cfg.Notifications.Pushover.Throttle.Window = 15 * time.Minute
+    }
+    if cfg.Notifications.Pushover.Throttle.MaxPerHost == 0 {
+        cfg.Notifications.Pushover.Throttle.MaxPerHost = 5
+    }
+    if cfg.Notifications.Pushover.Throttle.MaxTotal == 0 {
+        cfg.Notifications.Pushover.Throttle.MaxTotal = 20
     }
 }
 
@@ -495,6 +600,31 @@ func validate(cfg *Config) error {
     if cfg.Web.HeaderLink != "" {
         if !isValidURL(cfg.Web.HeaderLink) {
             return fmt.Errorf("web.header_link must be a valid URL")
+        }
+    }
+    
+    // NEW: Validate notification configuration
+    if cfg.Notifications.Enabled && cfg.Notifications.Pushover.Enabled {
+        if cfg.Notifications.Pushover.APIToken == "" {
+            return fmt.Errorf("notifications.pushover.api_token is required when Pushover is enabled")
+        }
+        if cfg.Notifications.Pushover.UserKey == "" {
+            return fmt.Errorf("notifications.pushover.user_key is required when Pushover is enabled")
+        }
+        if cfg.Notifications.Pushover.Priority < -2 || cfg.Notifications.Pushover.Priority > 2 {
+            return fmt.Errorf("notifications.pushover.priority must be between -2 and 2")
+        }
+        // Emergency priority requires retry and expire
+        if cfg.Notifications.Pushover.Priority == 2 {
+            if cfg.Notifications.Pushover.Retry < 30 {
+                return fmt.Errorf("notifications.pushover.retry must be at least 30 seconds for emergency priority")
+            }
+            if cfg.Notifications.Pushover.Expire < 60 {
+                return fmt.Errorf("notifications.pushover.expire must be at least 60 seconds for emergency priority")
+            }
+            if cfg.Notifications.Pushover.Expire > 10800 {
+                return fmt.Errorf("notifications.pushover.expire cannot exceed 10800 seconds (3 hours)")
+            }
         }
     }
     
@@ -582,7 +712,6 @@ func validate(cfg *Config) error {
 }
 
 // GetEffectiveThreshold returns the effective threshold for a check
-// considering both check-level and global defaults
 func (c *CheckConfig) GetEffectiveThreshold(globalDefault int) int {
     if c.Threshold > 0 {
         return c.Threshold
@@ -591,7 +720,6 @@ func (c *CheckConfig) GetEffectiveThreshold(globalDefault int) int {
 }
 
 // IsSoftFailEnabled returns whether soft fail is enabled for this check
-// considering both check-level and global settings
 func (c *CheckConfig) IsSoftFailEnabled(globalEnabled bool) bool {
     if c.SoftFailEnabled != nil {
         return *c.SoftFailEnabled
@@ -601,17 +729,14 @@ func (c *CheckConfig) IsSoftFailEnabled(globalEnabled bool) bool {
 
 // isValidURL checks if a string is a valid URL
 func isValidURL(str string) bool {
-    // Simple URL validation - starts with http:// or https://
     return len(str) > 7 && (str[:7] == "http://" || (len(str) > 8 && str[:8] == "https://"))
 }
 
 // containsPathTraversal checks if a filename contains path traversal sequences
 func containsPathTraversal(filename string) bool {
-    // Simple check for common path traversal patterns
     dangerous := []string{"../", "..\\", "/", "\\"}
     for _, pattern := range dangerous {
         if len(pattern) > 0 && (pattern == "/" || pattern == "\\") {
-            // Only check for leading slashes
             if len(filename) > 0 && (filename[0] == '/' || filename[0] == '\\') {
                 return true
             }
@@ -628,11 +753,9 @@ func containsPathTraversal(filename string) bool {
 
 // isValidGlobPattern checks if a string is a valid glob pattern
 func isValidGlobPattern(pattern string) bool {
-    // Basic validation - reject patterns with path separators
     if strings.Contains(pattern, "/") || strings.Contains(pattern, "\\") {
         return false
     }
-    // Try to use the pattern with filepath.Match to see if it's valid
     _, err := filepath.Match(pattern, "test.yaml")
     return err == nil
 }
