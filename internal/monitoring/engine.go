@@ -1,7 +1,9 @@
-// internal/monitoring/engine.go
+// internal/monitoring/engine.go - Enhanced with Pushover notifications
 package monitoring
 
 import (
+    "fmt"
+    "strings"
     "context"
     "sync"
     "time"
@@ -10,17 +12,26 @@ import (
     "raven2/internal/config"
     "raven2/internal/database"
     "raven2/internal/metrics"
+    "raven2/internal/notifications"
 )
 
 type Engine struct {
-    config    *config.Config
-    store     database.Store
-    metrics   *metrics.Collector
-    alertManager *SimpleAlertManager
-    scheduler *Scheduler
-    plugins   map[string]Plugin
-    mu        sync.RWMutex
-    running   bool
+    config         *config.Config
+    store          database.Store
+    metrics        *metrics.Collector
+    alertManager   *SimpleAlertManager
+    notifications  *notifications.NotificationService
+    scheduler      *Scheduler
+    plugins        map[string]Plugin
+    stateTracker   *StateTracker // Track previous states for notifications
+    mu             sync.RWMutex
+    running        bool
+}
+
+// StateTracker tracks previous states to detect changes for notifications
+type StateTracker struct {
+    previousStates map[string]int // host:check -> exit_code
+    mu             sync.RWMutex
 }
 
 type Plugin interface {
@@ -39,11 +50,24 @@ type CheckResult struct {
 
 func NewEngine(cfg *config.Config, store database.Store, metricsCollector *metrics.Collector) (*Engine, error) {
     engine := &Engine{
-        config:  cfg,
-        store:   store,
-        metrics: metricsCollector,
-        plugins: make(map[string]Plugin),
+        config:       cfg,
+        store:        store,
+        metrics:      metricsCollector,
+        plugins:      make(map[string]Plugin),
         alertManager: NewSimpleAlertManager(store, cfg),
+        stateTracker: NewStateTracker(),
+    }
+
+    // Initialize notification service
+    if cfg.Notifications.Enabled {
+        notificationService, err := notifications.NewNotificationService(&cfg.Notifications)
+        if err != nil {
+            logrus.WithError(err).Error("Failed to initialize notification service")
+            // Don't fail the entire engine, just log the error
+        } else {
+            engine.notifications = notificationService
+            logrus.Info("Notification service initialized successfully")
+        }
     }
 
     // Initialize plugins
@@ -58,6 +82,31 @@ func NewEngine(cfg *config.Config, store database.Store, metricsCollector *metri
     return engine, nil
 }
 
+func NewStateTracker() *StateTracker {
+    return &StateTracker{
+        previousStates: make(map[string]int),
+    }
+}
+
+func (s *StateTracker) GetPreviousState(hostID, checkID string) int {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+    
+    key := fmt.Sprintf("%s:%s", hostID, checkID)
+    if state, exists := s.previousStates[key]; exists {
+        return state
+    }
+    return 3 // Unknown if no previous state
+}
+
+func (s *StateTracker) UpdateState(hostID, checkID string, exitCode int) {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    
+    key := fmt.Sprintf("%s:%s", hostID, checkID)
+    s.previousStates[key] = exitCode
+}
+
 func (e *Engine) Start(ctx context.Context) error {
     e.mu.Lock()
     if e.running {
@@ -67,12 +116,17 @@ func (e *Engine) Start(ctx context.Context) error {
     e.running = true
     e.mu.Unlock()
 
-    logrus.Info("Starting monitoring engine")
+    logrus.Info("Starting monitoring engine with notifications")
 
     // Load configuration into database
     if err := e.syncConfig(); err != nil {
         logrus.WithError(err).Error("Failed to sync config")
         return err
+    }
+
+    // Initialize state tracker from existing database
+    if err := e.initializeStateTracker(); err != nil {
+        logrus.WithError(err).Warn("Failed to initialize state tracker")
     }
 
     purgeInterval := 6 * time.Hour
@@ -83,6 +137,39 @@ func (e *Engine) Start(ctx context.Context) error {
 
     // Start scheduler
     return e.scheduler.Start(ctx)
+}
+
+func (e *Engine) initializeStateTracker() error {
+    // Load recent statuses to initialize state tracker
+    statuses, err := e.store.GetStatus(context.Background(), database.StatusFilters{
+        Limit: 1000, // Get recent statuses
+    })
+    if err != nil {
+        return err
+    }
+
+    // Build a map of latest statuses by host:check
+    latestStatuses := make(map[string]*database.Status)
+    for i := range statuses {
+        status := &statuses[i]
+        key := fmt.Sprintf("%s:%s", status.HostID, status.CheckID)
+        
+        // Keep the most recent status for each host:check combination
+        if existing, exists := latestStatuses[key]; !exists || status.Timestamp.After(existing.Timestamp) {
+            latestStatuses[key] = status
+        }
+    }
+
+    // Initialize state tracker with these statuses
+    for key, status := range latestStatuses {
+        parts := strings.Split(key, ":")
+        if len(parts) == 2 {
+            e.stateTracker.UpdateState(parts[0], parts[1], status.ExitCode)
+        }
+    }
+
+    logrus.WithField("initialized_states", len(latestStatuses)).Info("State tracker initialized")
+    return nil
 }
 
 func (e *Engine) Stop() {
@@ -206,7 +293,6 @@ func (e *Engine) GetAlertManager() *SimpleAlertManager {
     return e.alertManager
 }
 
-// Add this method:
 func (e *Engine) RefreshConfigWithPurge() error {
     logrus.Info("Refreshing configuration with alert purging")
     
@@ -224,4 +310,125 @@ func (e *Engine) RefreshConfigWithPurge() error {
     }
 
     return nil
+}
+
+// ProcessStatusChange handles status changes and triggers notifications
+func (e *Engine) ProcessStatusChange(ctx context.Context, result *JobResult) error {
+    if result == nil || result.Job == nil || result.Result == nil {
+        return fmt.Errorf("invalid job result")
+    }
+
+    hostID := result.Job.HostID
+    checkID := result.Job.CheckID
+    currentExit := result.Result.ExitCode
+    
+    // Get previous state
+    previousExit := e.stateTracker.GetPreviousState(hostID, checkID)
+    
+    // Determine if this is a recovery (going from non-OK to OK)
+    isRecovery := previousExit != 0 && currentExit == 0
+    
+    // Determine if this is a state change that warrants notification
+    shouldNotify := e.shouldNotifyForStateChange(previousExit, currentExit, isRecovery)
+    
+    if shouldNotify && e.notifications != nil {
+        // Create notification event
+        event := &notifications.NotificationEvent{
+            Host:         result.Job.Host,
+            Check:        result.Job.Check,
+            Status: &database.Status{
+                HostID:     hostID,
+                CheckID:    checkID,
+                ExitCode:   currentExit,
+                Output:     result.Result.Output,
+                PerfData:   result.Result.PerfData,
+                LongOutput: result.Result.LongOutput,
+                Duration:   result.Result.Duration.Seconds() * 1000,
+                Timestamp:  time.Now(),
+            },
+            PreviousExit: previousExit,
+            Timestamp:    time.Now(),
+            IsRecovery:   isRecovery,
+        }
+
+        // Send notification asynchronously to avoid blocking the monitoring loop
+        go func() {
+            if err := e.notifications.SendNotification(ctx, event); err != nil {
+                logrus.WithError(err).WithFields(logrus.Fields{
+                    "host":  result.Job.Host.Name,
+                    "check": result.Job.Check.Name,
+                    "status": getStatusName(currentExit),
+                }).Error("Failed to send notification")
+            }
+        }()
+        
+        logrus.WithFields(logrus.Fields{
+            "host":         result.Job.Host.Name,
+            "check":        result.Job.Check.Name,
+            "previous":     getStatusName(previousExit),
+            "current":      getStatusName(currentExit),
+            "is_recovery":  isRecovery,
+        }).Info("Notification triggered for status change")
+    }
+    
+    // Update state tracker
+    e.stateTracker.UpdateState(hostID, checkID, currentExit)
+    
+    return nil
+}
+
+// shouldNotifyForStateChange determines if a notification should be sent
+func (e *Engine) shouldNotifyForStateChange(previousExit, currentExit int, isRecovery bool) bool {
+    // Always notify on recovery
+    if isRecovery {
+        return true
+    }
+    
+    // Notify when going from OK to non-OK
+    if previousExit == 0 && currentExit != 0 {
+        return true
+    }
+    
+    // Notify when changing between non-OK states (e.g., warning to critical)
+    if previousExit != 0 && currentExit != 0 && previousExit != currentExit {
+        return true
+    }
+    
+    // Don't notify for repeated states or OK to OK transitions
+    return false
+}
+
+// TestNotifications sends a test notification
+func (e *Engine) TestNotifications(ctx context.Context) error {
+    if e.notifications == nil {
+        return fmt.Errorf("notifications are not configured")
+    }
+    
+    message := "Test notification from Raven monitoring system. If you receive this, notifications are working correctly!"
+    
+    return e.notifications.TestNotification(ctx, message)
+}
+
+// GetNotificationStats returns notification statistics
+func (e *Engine) GetNotificationStats() map[string]interface{} {
+    if e.notifications == nil {
+        return map[string]interface{}{
+            "enabled": false,
+        }
+    }
+    
+    return e.notifications.GetStats()
+}
+
+func getStatusName(exitCode int) string {
+    switch exitCode {
+    case 0:
+        return "ok"
+    case 1:
+        return "warning"
+    case 2:
+        return "critical"
+    default:
+        return "unknown"
+    }
 }
