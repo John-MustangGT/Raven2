@@ -342,7 +342,14 @@ func (s *Scheduler) handleResult(result *JobResult) {
             Duration:   0,
         }
     }
-
+/*
+    // Get previous status for comparison
+    previousStatuses, _ := s.engine.store.GetStatus(ctx, database.StatusFilters{
+        HostID:  result.Job.HostID,
+        CheckID: result.Job.CheckID,
+        Limit:   1,
+    })
+*/
     // Update state tracker with new result
     reportedState := s.updateStateTracker(key, result.Result.ExitCode)
     
@@ -528,5 +535,72 @@ func (w *Worker) executeJob(job *Job) {
         Job:    job,
         Result: result,
         Error:  err,
+    }
+}
+
+// NEW: Add notification handling method
+func (s *Scheduler) handleNotification(host *database.Host, check *database.Check, status *database.Status, previousExitCode, currentExitCode int) {
+    // Don't send notifications if the engine doesn't have a notification client
+    if s.engine.pushoverClient == nil {
+        return
+    }
+
+    shouldNotify := false
+
+    if previousExitCode == -1 {
+        // First time seeing this check - only notify if it's not OK
+        shouldNotify = currentExitCode != 0
+    } else {
+        // Check for state changes that should trigger notifications
+        shouldNotify = s.shouldSendNotification(previousExitCode, currentExitCode)
+    }
+
+    if shouldNotify {
+        logrus.WithFields(logrus.Fields{
+            "host":         host.Name,
+            "check":        check.Name,
+            "previous":     getStatusName(previousExitCode),
+            "current":      getStatusName(currentExitCode),
+            "notification": "sending",
+        }).Debug("Status change detected, sending notification")
+
+        // Send notification in background to avoid blocking check processing
+        go s.engine.sendNotification(host, check, status)
+    }
+}
+
+// NEW: Determine if a notification should be sent based on status changes
+func (s *Scheduler) shouldSendNotification(previousExitCode, currentExitCode int) bool {
+    // Recovery: any non-OK to OK
+    if previousExitCode != 0 && currentExitCode == 0 {
+        return true
+    }
+
+    // New problem: OK to any non-OK
+    if previousExitCode == 0 && currentExitCode != 0 {
+        return true
+    }
+
+    // State change between different non-OK states
+    if previousExitCode != 0 && currentExitCode != 0 && previousExitCode != currentExitCode {
+        return true
+    }
+
+    return false
+}
+
+// NEW: Helper function to get status name
+func getStatusName(exitCode int) string {
+    switch exitCode {
+    case 0:
+        return "OK"
+    case 1:
+        return "WARNING"
+    case 2:
+        return "CRITICAL"
+    case -1:
+        return "INITIAL"
+    default:
+        return "UNKNOWN"
     }
 }

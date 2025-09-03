@@ -52,6 +52,13 @@ window.SidebarComponent = {
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a class="nav-link" :class="{ active: currentView === 'notifications' }" 
+                       @click="$emit('set-view', 'notifications')">
+                        <i class="fas fa-bell"></i>
+                        <span>Notifications</span>
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link" :class="{ active: currentView === 'about' }" 
                        @click="$emit('set-view', 'about')">
                         <i class="fas fa-info-circle"></i>

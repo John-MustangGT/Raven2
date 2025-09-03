@@ -109,6 +109,11 @@
                 @view-host-detail="viewHostDetailFromAlert">
             </alert-detail-view>
 
+            <!-- Notification View -->
+            <notifications-view v-if="currentView === 'notifications'" 
+                ref="notificationsView">
+            </notifications-view>
+
             <!-- About View -->
             <about-view v-if="currentView === 'about'"
                 :build-info="buildInfo"
@@ -164,6 +169,7 @@
     <script src="js/components/checks-view.js"></script>
     <script src="js/components/alerts-view.js"></script>
     <script src="js/components/alert-detail-view.js"></script>
+    <script src="js/components/notifications-view.js"></script>
     <script src="js/components/about-view.js"></script>
     <script src="js/components/settings-view.js"></script>
     <script src="js/components/host-modal.js"></script>

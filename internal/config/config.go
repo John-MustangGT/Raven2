@@ -18,6 +18,7 @@ type Config struct {
     Prometheus PrometheusConfig `yaml:"prometheus"`
     Monitoring MonitoringConfig `yaml:"monitoring"`
     Logging    LoggingConfig    `yaml:"logging"`
+    Pushover   PushoverConfig   `yaml:"pushover"`
     Hosts      []HostConfig     `yaml:"hosts"`
     Checks     []CheckConfig    `yaml:"checks"`
     Include    IncludeConfig    `yaml:"include"`
@@ -75,28 +76,38 @@ type LoggingConfig struct {
     Format string `yaml:"format"`
 }
 
+// Update the HostConfig to support per-host notification overrides:
 type HostConfig struct {
-    ID          string            `yaml:"id"`
-    Name        string            `yaml:"name"`
-    DisplayName string            `yaml:"display_name"`
-    IPv4        string            `yaml:"ipv4"`
-    Hostname    string            `yaml:"hostname"`
-    Group       string            `yaml:"group"`
-    Enabled     bool              `yaml:"enabled"`
-    Tags        map[string]string `yaml:"tags"`
+    ID             string                 `yaml:"id"`
+    Name           string                 `yaml:"name"`
+    DisplayName    string                 `yaml:"display_name"`
+    IPv4           string                 `yaml:"ipv4"`
+    Hostname       string                 `yaml:"hostname"`
+    Group          string                 `yaml:"group"`
+    Enabled        bool                   `yaml:"enabled"`
+    Tags           map[string]string      `yaml:"tags"`
+    Notifications  *NotificationOverride  `yaml:"notifications,omitempty"`
 }
 
+// Update the CheckConfig to support per-check notification overrides:
 type CheckConfig struct {
     ID              string                   `yaml:"id"`
     Name            string                   `yaml:"name"`
     Type            string                   `yaml:"type"`
     Hosts           []string                 `yaml:"hosts"`
     Interval        map[string]time.Duration `yaml:"interval"`
-    Threshold       int                      `yaml:"threshold"`         // Soft fail threshold (overrides default)
-    SoftFailEnabled *bool                    `yaml:"soft_fail_enabled"` // Per-check soft fail override (nil = use global)
+    Threshold       int                      `yaml:"threshold"`
+    SoftFailEnabled *bool                    `yaml:"soft_fail_enabled"`
     Timeout         time.Duration            `yaml:"timeout"`
     Enabled         bool                     `yaml:"enabled"`
     Options         map[string]interface{}   `yaml:"options"`
+    Notifications   *NotificationOverride    `yaml:"notifications,omitempty"`
+}
+
+// NotificationOverride allows per-host or per-check notification customization
+type NotificationOverride struct {
+    Pushover *PushoverOverride `yaml:"pushover,omitempty"`
+    // Future: Email, Slack, etc. can be added here
 }
 
 // PartialConfig represents a partial configuration that can be merged
@@ -514,6 +525,11 @@ func validate(cfg *Config) error {
         if containsPathTraversal(filename) {
             return fmt.Errorf("web.files contains invalid filename with path traversal: %s", filename)
         }
+    }
+
+    // Validate Pushover configuration
+    if err := cfg.Pushover.Validate(); err != nil {
+        return fmt.Errorf("invalid pushover configuration: %w", err)
     }
     
     // Validate include configuration

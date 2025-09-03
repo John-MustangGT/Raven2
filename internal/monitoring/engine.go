@@ -2,6 +2,7 @@
 package monitoring
 
 import (
+    "fmt"
     "context"
     "sync"
     "time"
@@ -10,6 +11,7 @@ import (
     "raven2/internal/config"
     "raven2/internal/database"
     "raven2/internal/metrics"
+    "raven2/internal/notifications"
 )
 
 type Engine struct {
@@ -19,6 +21,7 @@ type Engine struct {
     alertManager *SimpleAlertManager
     scheduler *Scheduler
     plugins   map[string]Plugin
+    pushoverClient   *notifications.PushoverClient
     mu        sync.RWMutex
     running   bool
 }
@@ -37,6 +40,7 @@ type CheckResult struct {
     Duration   time.Duration
 }
 
+// Update NewEngine to initialize Pushover client:
 func NewEngine(cfg *config.Config, store database.Store, metricsCollector *metrics.Collector) (*Engine, error) {
     engine := &Engine{
         config:  cfg,
@@ -44,6 +48,16 @@ func NewEngine(cfg *config.Config, store database.Store, metricsCollector *metri
         metrics: metricsCollector,
         plugins: make(map[string]Plugin),
         alertManager: NewSimpleAlertManager(store, cfg),
+    }
+
+    // Initialize Pushover client if enabled
+    if cfg.Pushover.Enabled {
+        extendedStore, ok := store.(database.ExtendedStore)
+        if !ok {
+            return nil, fmt.Errorf("extended store interface required for notifications")
+        }
+        engine.pushoverClient = notifications.NewPushoverClient(&cfg.Pushover, extendedStore)
+        logrus.Info("Pushover notifications enabled")
     }
 
     // Initialize plugins
@@ -58,6 +72,7 @@ func NewEngine(cfg *config.Config, store database.Store, metricsCollector *metri
     return engine, nil
 }
 
+// Update the Start method to include notification cleanup:
 func (e *Engine) Start(ctx context.Context) error {
     e.mu.Lock()
     if e.running {
@@ -80,6 +95,11 @@ func (e *Engine) Start(ctx context.Context) error {
         purgeInterval = e.config.Database.CleanupInterval
     }
     e.alertManager.SchedulePeriodicPurge(ctx, purgeInterval)
+
+    // Start notification cleanup routine
+    if e.pushoverClient != nil {
+        go e.runNotificationCleanup(ctx)
+    }
 
     // Start scheduler
     return e.scheduler.Start(ctx)
@@ -206,7 +226,6 @@ func (e *Engine) GetAlertManager() *SimpleAlertManager {
     return e.alertManager
 }
 
-// Add this method:
 func (e *Engine) RefreshConfigWithPurge() error {
     logrus.Info("Refreshing configuration with alert purging")
     
@@ -224,4 +243,64 @@ func (e *Engine) RefreshConfigWithPurge() error {
     }
 
     return nil
+}
+
+// NEW: Add notification cleanup routine
+func (e *Engine) runNotificationCleanup(ctx context.Context) {
+    ticker := time.NewTicker(24 * time.Hour)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-ticker.C:
+            if e.pushoverClient != nil {
+                e.pushoverClient.CleanupResolvedAlerts(7 * 24 * time.Hour) // Keep for 7 days
+            }
+        }
+    }
+}
+
+// NEW: Add method to send notifications when status changes
+func (e *Engine) sendNotification(host *database.Host, check *database.Check, status *database.Status) {
+    if e.pushoverClient == nil {
+        return
+    }
+
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    if err := e.pushoverClient.SendNotification(ctx, host, check, status); err != nil {
+        logrus.WithFields(logrus.Fields{
+            "host":  host.Name,
+            "check": check.Name,
+            "error": err,
+        }).Error("Failed to send notification")
+    }
+}
+
+// NEW: Add method to test Pushover configuration
+func (e *Engine) TestPushoverConfig(ctx context.Context) error {
+    if e.pushoverClient == nil {
+        return fmt.Errorf("pushover client not initialized")
+    }
+
+    return e.pushoverClient.TestConnection(ctx)
+}
+
+// NEW: Add method to get notification status
+func (e *Engine) GetNotificationStatus() map[string]interface{} {
+    status := map[string]interface{}{
+        "pushover_enabled": e.config.Pushover.Enabled,
+    }
+
+    if e.pushoverClient != nil {
+        status["pushover_configured"] = true
+        // Add more detailed status if needed
+    } else {
+        status["pushover_configured"] = false
+    }
+
+    return status
 }

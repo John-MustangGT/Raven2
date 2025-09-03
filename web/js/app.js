@@ -9,6 +9,7 @@ createApp({
         'hosts-view': window.HostsView,
         'checks-view': window.ChecksView,
         'alerts-view': window.AlertsView,
+        'notifications-view': window.NotificationsView,
         'about-view': window.AboutView,
         'settings-view': window.SettingsView,
         'host-modal': window.HostModal,
@@ -253,6 +254,8 @@ createApp({
                 this.loadChecks();
             } else if (view === 'alerts') {
                 this.loadAlerts();
+            } else if (view === 'notifications') {
+                // Load notification settings if needed
             } else if (view === 'about') {
                 this.loadBuildInfo();
             }
@@ -695,6 +698,14 @@ createApp({
                 this.loadChecks();
             } else if (this.currentView === 'alerts') {
                 this.loadAlerts();
+            } else if (this.currentView === 'notifications') {
+                // Force refresh of notification view by calling its methods
+                if (this.$refs.notificationsView) {
+                    this.$refs.notificationsView.loadNotificationStatus();
+                    if (this.$refs.notificationsView.notificationStatus.pushover_enabled) {
+                        this.$refs.notificationsView.loadPushoverConfig();
+                    }
+                }
             } else if (this.currentView === 'host-detail') {
                 this.refreshHostData();
             } else if (this.currentView === 'alert-detail') {

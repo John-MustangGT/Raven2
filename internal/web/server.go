@@ -171,6 +171,9 @@ func (s *Server) setupRoutes() {
     if s.config.Prometheus.Enabled {
         s.router.GET(s.config.Prometheus.MetricsPath, gin.WrapH(promhttp.Handler()))
     }
+
+    // Notifications routes
+    s.setupNotificationRoutes()
 }
 
 // setupFileRoutes configures routes for files specified in the config
